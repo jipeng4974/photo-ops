@@ -1,0 +1,35 @@
+{
+  "version": 1,
+  "files": [
+    {
+      "path": "landscapes/54398-into-darkness.CR3",
+      "url": "https://discuss.pixls.us/uploads/short-url/2ky6ai2brPxVyAW7l4n7MOUPT9z.CR3",
+      "group": "cr3",
+      "source": "Len Philpot, into-darkness, CC BY-SA (see source post)",
+      "source_page": "https://discuss.pixls.us/t/into-darkness/54398",
+      "license_url": "https://creativecommons.org/licenses/by-sa/4.0/",
+      "purpose": "sunlit autumn foliage and dark bayou",
+      "sha256": "c8d9e0caf76f365bf53f4ccbc081c44750e463c5d6b40c37a8f798d6d4e01ac7"
+    },
+    {
+      "path": "landscapes/44268-western-himalayas-mountain-lake.CR3",
+      "url": "https://discuss.pixls.us/uploads/short-url/l3y6UThJ9HV4aNe9QEeht957sJH.CR3",
+      "group": "cr3",
+      "source": "Aliks, western-himalayas-mountain-lake, CC BY-SA (see source post)",
+      "source_page": "https://discuss.pixls.us/t/western-himalayas-mountain-lake/44268",
+      "license_url": "https://creativecommons.org/licenses/by-sa/4.0/",
+      "purpose": "mountain, lake, blue sky and atmospheric depth",
+      "sha256": "729ec415a6a62dced3a3a9832d2fc17a8f2691032ab334a99d9318f5e7e87261"
+    },
+    {
+      "path": "landscapes/48825-blue-sky-between-mountains-and-clouds.CR3",
+      "url": "https://discuss.pixls.us/uploads/short-url/kQk5vo5mFnLSSwXD7Ej6DiqOunn.CR3",
+      "group": "cr3",
+      "source": "Karl (kaha), blue-sky-between-mountains-and-clouds, CC BY-SA (see source post)",
+      "source_page": "https://discuss.pixls.us/t/blue-sky-between-mountains-and-clouds/48825",
+      "license_url": "https://creativecommons.org/licenses/by-sa/4.0/",
+      "purpose": "bright clouds and dark terrain; sky false-positive guard",
+      "sha256": "f55daea4bcfe8116a6125b8dd0e2fb58720c7d99a3364080bdcb3b67a30d9d16"
+    }
+  ]
+}

@@ -1,0 +1,55 @@
+{
+  "version": 1,
+  "files": [
+    {
+      "path": "rawpixls/4611-eos-r.CR3",
+      "url": "https://raw.pixls.us/getfile.php/4611/nice/Canon%20-%20EOS%20R%20-%203:2.CR3",
+      "sha256": "cfd118af4477ef37538eb953421572a7a5c80694e59764049223107cc0c9ae83",
+      "group": "cr3",
+      "source": "raw.pixls.us sample 4611; Canon EOS R, 3:2, ; CC0 1.0",
+      "purpose": "single-image decode/color/layout case; not a focus-bracket sequence"
+    },
+    {
+      "path": "rawpixls/4694-eos-r5-raw.CR3",
+      "url": "https://raw.pixls.us/getfile.php/4694/nice/Canon%20-%20EOS%20R5%20-%203:2.CR3",
+      "sha256": "21430c36387efe65bd09ac0fcd724bfd959d93dd391ec811a1b741c8663becb5",
+      "group": "cr3",
+      "source": "raw.pixls.us sample 4694; Canon EOS R5, 3:2, RAW no dualpixel; CC0 1.0",
+      "purpose": "single-image decode/color/layout case; not a focus-bracket sequence"
+    },
+    {
+      "path": "rawpixls/4698-eos-r5-craw.CR3",
+      "url": "https://raw.pixls.us/getfile.php/4698/nice/Canon%20-%20EOS%20R5%20-%203:2.CR3",
+      "sha256": "2deae46b816e56ba91ae7a3892ca121290e12d5b22afb11f5b05a3d8f09f759f",
+      "group": "cr3",
+      "source": "raw.pixls.us sample 4698; Canon EOS R5, 3:2, CRAW no dualpixel; CC0 1.0",
+      "purpose": "single-image decode/color/layout case; not a focus-bracket sequence"
+    },
+    {
+      "path": "rawpixls/5634-eos-r7-craw.CR3",
+      "url": "https://raw.pixls.us/getfile.php/5634/nice/Canon%20-%20EOS%20R7%20-%203:2.CR3",
+      "sha256": "10a18e3f01ca9cd93408496d3853388ef140830548bfeed4237e40f967eb9d5c",
+      "group": "cr3",
+      "source": "raw.pixls.us sample 5634; Canon EOS R7, 3:2, cRaw; CC0 1.0",
+      "purpose": "single-image decode/color/layout case; not a focus-bracket sequence"
+    },
+    {
+      "path": "rawpixls/7882-eos-r5-ii-craw.CR3",
+      "url": "https://raw.pixls.us/getfile.php/7882/nice/Canon%20-%20EOS%20R5%20Mark%20II%20-%20CRAW%20%283:2%29.CR3",
+      "sha256": "b3c08a5c7a97299dfd58896a12b939e7b43ec78682761812524825e6e5d087be",
+      "group": "cr3",
+      "source": "raw.pixls.us sample 7882; Canon EOS R5 Mark II, CRAW (3:2), ; CC0 1.0",
+      "purpose": "single-image decode/color/layout case; not a focus-bracket sequence"
+    },
+    {
+      "path": "playraw/27793-autumn-forest.CR3",
+      "url": "https://discuss.pixls.us/uploads/short-url/tbRprWg0IKHfyuXfKexisrrvOmN.CR3",
+      "sha256": "5f761036ea77a63fbd632272dca7d5ba1a0c71850ceabb8d477f91982470f35b",
+      "group": "cr3",
+      "source": "Jonathan Bieler, High contrast autumn forest scene (2021), CC BY-SA 4.0",
+      "source_page": "https://discuss.pixls.us/t/high-contrast-autumn-forest-scene/27793",
+      "license_url": "https://creativecommons.org/licenses/by-sa/4.0/",
+      "purpose": "single-image high dynamic range foliage / color case; not a focus-bracket sequence"
+    }
+  ]
+}

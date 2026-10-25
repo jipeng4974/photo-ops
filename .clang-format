@@ -1,0 +1,4 @@
+BasedOnStyle: LLVM
+ColumnLimit: 96
+SeparateDefinitionBlocks: Always
+AllowShortFunctionsOnASingleLine: None

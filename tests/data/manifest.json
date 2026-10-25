@@ -1,0 +1,103 @@
+{
+  "version": 1,
+  "files": [
+    {
+      "path": "sood/raw/frame_000.CR3",
+      "url": "https://huggingface.co/datasets/jjjsood/focus-stack-sample/resolve/0f8256edf2d2e3f1f1ea162f78a8bca36eb6915c/raw/frame_000.CR3",
+      "sha256": "4538bc75741cc16292b1838c52989050d084c4a51f0e005a554819190c379fca",
+      "group": "cr3",
+      "source": "Johannes Sood, Focus Stack Sample (2026), CC BY 4.0"
+    },
+    {
+      "path": "sood/raw/frame_001.CR3",
+      "url": "https://huggingface.co/datasets/jjjsood/focus-stack-sample/resolve/0f8256edf2d2e3f1f1ea162f78a8bca36eb6915c/raw/frame_001.CR3",
+      "sha256": "ee3ae1e3611500e68dd37a51e9939f5d0527dfa39b262d5880ffdc1c8bac4a1c",
+      "group": "cr3",
+      "source": "Johannes Sood, Focus Stack Sample (2026), CC BY 4.0"
+    },
+    {
+      "path": "sood/raw/frame_002.CR3",
+      "url": "https://huggingface.co/datasets/jjjsood/focus-stack-sample/resolve/0f8256edf2d2e3f1f1ea162f78a8bca36eb6915c/raw/frame_002.CR3",
+      "sha256": "2bda10f70bce16cf189bbfdee39b7e9f5695607345ea841180765a274e32fdc7",
+      "group": "cr3",
+      "source": "Johannes Sood, Focus Stack Sample (2026), CC BY 4.0"
+    },
+    {
+      "path": "sood/tiff/frame_000.tif",
+      "url": "https://huggingface.co/datasets/jjjsood/focus-stack-sample/resolve/0f8256edf2d2e3f1f1ea162f78a8bca36eb6915c/tiff/frame_000.tif",
+      "sha256": "3e206ef47c04738c3dd7c8fabf2bbc44c2afdd700afab8803dcea04bef94f8e6",
+      "group": "tiff",
+      "source": "Johannes Sood, Focus Stack Sample (2026), CC BY 4.0"
+    },
+    {
+      "path": "sood/LICENSE",
+      "url": "https://huggingface.co/datasets/jjjsood/focus-stack-sample/resolve/0f8256edf2d2e3f1f1ea162f78a8bca36eb6915c/LICENSE",
+      "sha256": "9ba9550ad48438d0836ddab3da480b3b69ffa0aac7b7878b5a0039e7ab429411",
+      "group": "notice",
+      "source": "Johannes Sood, CC BY 4.0"
+    },
+    {
+      "path": "sood/README.md",
+      "url": "https://huggingface.co/datasets/jjjsood/focus-stack-sample/resolve/0f8256edf2d2e3f1f1ea162f78a8bca36eb6915c/README.md",
+      "sha256": "c54f3060ac7c655eef98b594154f301437a43c138c997b5e731cd45c3ebf62a3",
+      "group": "notice",
+      "source": "Johannes Sood, CC BY 4.0"
+    },
+    {
+      "path": "pcb/pcb_001.jpg",
+      "url": "https://raw.githubusercontent.com/PetteriAimonen/focus-stack/0cd289e224fe24aead5b146faeaa46950775f346/examples/pcb/pcb_001.jpg",
+      "sha256": "0c5fc542eec9058ec0d7bce315732f6d3867731fdcdf05ca536f2025979d991d",
+      "group": "jpeg",
+      "source": "Petteri Aimonen, focus-stack examples; repository MIT license, no separate image license"
+    },
+    {
+      "path": "pcb/pcb_002.jpg",
+      "url": "https://raw.githubusercontent.com/PetteriAimonen/focus-stack/0cd289e224fe24aead5b146faeaa46950775f346/examples/pcb/pcb_002.jpg",
+      "sha256": "5589326d77b6cbc4cf4adecdf2da969bdd4245d0cb97a4a6553c28bd78ff7869",
+      "group": "jpeg",
+      "source": "Petteri Aimonen, focus-stack examples; repository MIT license, no separate image license"
+    },
+    {
+      "path": "pcb/pcb_003.jpg",
+      "url": "https://raw.githubusercontent.com/PetteriAimonen/focus-stack/0cd289e224fe24aead5b146faeaa46950775f346/examples/pcb/pcb_003.jpg",
+      "sha256": "4d1bbb9cb6a09641db151bad3d0b9d8f5e156c0d5c857e8f2366cd861a4bd6f6",
+      "group": "jpeg",
+      "source": "Petteri Aimonen, focus-stack examples; repository MIT license, no separate image license"
+    },
+    {
+      "path": "pcb/pcb_004.jpg",
+      "url": "https://raw.githubusercontent.com/PetteriAimonen/focus-stack/0cd289e224fe24aead5b146faeaa46950775f346/examples/pcb/pcb_004.jpg",
+      "sha256": "1c101e35e9e7ff3867fd6b0e22618cac00116c2800d092106f2449dfdaed4de3",
+      "group": "jpeg",
+      "source": "Petteri Aimonen, focus-stack examples; repository MIT license, no separate image license"
+    },
+    {
+      "path": "pcb/pcb_005.jpg",
+      "url": "https://raw.githubusercontent.com/PetteriAimonen/focus-stack/0cd289e224fe24aead5b146faeaa46950775f346/examples/pcb/pcb_005.jpg",
+      "sha256": "dec186fc4a5173994a14bbcf84b297c10563cc5e4b80e54f053c766381636541",
+      "group": "jpeg",
+      "source": "Petteri Aimonen, focus-stack examples; repository MIT license, no separate image license"
+    },
+    {
+      "path": "pcb/pcb_006.jpg",
+      "url": "https://raw.githubusercontent.com/PetteriAimonen/focus-stack/0cd289e224fe24aead5b146faeaa46950775f346/examples/pcb/pcb_006.jpg",
+      "sha256": "f9c7df70264e1e35afacd5f37d5681c28427478b4329af03fc910d14f9162a00",
+      "group": "jpeg",
+      "source": "Petteri Aimonen, focus-stack examples; repository MIT license, no separate image license"
+    },
+    {
+      "path": "pcb/pcb_007.jpg",
+      "url": "https://raw.githubusercontent.com/PetteriAimonen/focus-stack/0cd289e224fe24aead5b146faeaa46950775f346/examples/pcb/pcb_007.jpg",
+      "sha256": "d5d075bc94c6414acae8600166e7c091e97b93cebda80bac174150352629993c",
+      "group": "jpeg",
+      "source": "Petteri Aimonen, focus-stack examples; repository MIT license, no separate image license"
+    },
+    {
+      "path": "pcb/LICENSE.md",
+      "url": "https://raw.githubusercontent.com/PetteriAimonen/focus-stack/0cd289e224fe24aead5b146faeaa46950775f346/LICENSE.md",
+      "sha256": "5e11fc4bce97ec54bfe65e8b74da8010fd1d7f2427d35f28e3cab25607109e57",
+      "group": "notice",
+      "source": "Petteri Aimonen, focus-stack examples; repository MIT license, no separate image license"
+    }
+  ]
+}

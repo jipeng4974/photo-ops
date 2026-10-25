@@ -1,0 +1,106 @@
+{
+  "source": "https://raw.pixls.us/json/getrepository.php",
+  "retrieved": "2026-10-25",
+  "samples": [
+    {
+      "id": 4611,
+      "camera": "EOS R",
+      "mode": "3:2",
+      "remark": "",
+      "license": "CC0-1.0",
+      "license_url": "https://creativecommons.org/publicdomain/zero/1.0/",
+      "published": "2021-05-10",
+      "repository_row": [
+        "Canon",
+        "EOS R",
+        "3:2",
+        30.11,
+        "",
+        "<a href='https://creativecommons.org/publicdomain/zero/1.0/' title='Creative Commons 0 - Public Domain' class='cc'>co</a>",
+        "2021-05-10",
+        "<a href='https://raw.pixls.us/getfile.php/4611/nice/Canon - EOS R - 3:2.CR3'>Canon - EOS R - 3:2.CR3</a><div class='checksumdata'><span title='sha256 Checksum'>cfd118af4477ef37538eb953421572a7a5c80694e59764049223107cc0c9ae83</span>&nbsp;(27.70MB)</div>",
+        ""
+      ]
+    },
+    {
+      "id": 4694,
+      "camera": "EOS R5",
+      "mode": "3:2",
+      "remark": "RAW no dualpixel",
+      "license": "CC0-1.0",
+      "license_url": "https://creativecommons.org/publicdomain/zero/1.0/",
+      "published": "2021-05-19",
+      "repository_row": [
+        "Canon",
+        "EOS R5",
+        "3:2",
+        44.76,
+        "RAW no dualpixel",
+        "<a href='https://creativecommons.org/publicdomain/zero/1.0/' title='Creative Commons 0 - Public Domain' class='cc'>co</a>",
+        "2021-05-19",
+        "<a href='https://raw.pixls.us/getfile.php/4694/nice/Canon - EOS R5 - 3:2.CR3'>Canon - EOS R5 - 3:2.CR3</a><div class='checksumdata'><span title='sha256 Checksum'>21430c36387efe65bd09ac0fcd724bfd959d93dd391ec811a1b741c8663becb5</span>&nbsp;(38.75MB)</div>",
+        ""
+      ]
+    },
+    {
+      "id": 4698,
+      "camera": "EOS R5",
+      "mode": "3:2",
+      "remark": "CRAW no dualpixel",
+      "license": "CC0-1.0",
+      "license_url": "https://creativecommons.org/publicdomain/zero/1.0/",
+      "published": "2021-05-19",
+      "repository_row": [
+        "Canon",
+        "EOS R5",
+        "3:2",
+        44.76,
+        "CRAW no dualpixel",
+        "<a href='https://creativecommons.org/publicdomain/zero/1.0/' title='Creative Commons 0 - Public Domain' class='cc'>co</a>",
+        "2021-05-19",
+        "<a href='https://raw.pixls.us/getfile.php/4698/nice/Canon - EOS R5 - 3:2.CR3'>Canon - EOS R5 - 3:2.CR3</a><div class='checksumdata'><span title='sha256 Checksum'>2deae46b816e56ba91ae7a3892ca121290e12d5b22afb11f5b05a3d8f09f759f</span>&nbsp;(16.04MB)</div>",
+        ""
+      ]
+    },
+    {
+      "id": 5634,
+      "camera": "EOS R7",
+      "mode": "3:2",
+      "remark": "cRaw",
+      "license": "CC0-1.0",
+      "license_url": "https://creativecommons.org/publicdomain/zero/1.0/",
+      "published": "2022-06-26",
+      "repository_row": [
+        "Canon",
+        "EOS R7",
+        "3:2",
+        32.29,
+        "cRaw",
+        "<a href='https://creativecommons.org/publicdomain/zero/1.0/' title='Creative Commons 0 - Public Domain' class='cc'>co</a>",
+        "2022-06-26",
+        "<a href='https://raw.pixls.us/getfile.php/5634/nice/Canon - EOS R7 - 3:2.CR3'>Canon - EOS R7 - 3:2.CR3</a><div class='checksumdata'><span title='sha256 Checksum'>10a18e3f01ca9cd93408496d3853388ef140830548bfeed4237e40f967eb9d5c</span>&nbsp;(12.88MB)</div>",
+        "<a target='_blank' href='https://raw.pixls.us/getfile.php/5634/exif/443A0159.CR3.exif.txt'>exifdata</a>"
+      ]
+    },
+    {
+      "id": 7882,
+      "camera": "EOS R5 Mark II",
+      "mode": "CRAW (3:2)",
+      "remark": "",
+      "license": "CC0-1.0",
+      "license_url": "https://creativecommons.org/publicdomain/zero/1.0/",
+      "published": "2025-05-13",
+      "repository_row": [
+        "Canon",
+        "EOS R5 Mark II",
+        "CRAW (3:2)",
+        44.76,
+        "",
+        "<a href='https://creativecommons.org/publicdomain/zero/1.0/' title='Creative Commons 0 - Public Domain' class='cc'>co</a>",
+        "2025-05-13",
+        "<a href='https://raw.pixls.us/getfile.php/7882/nice/Canon - EOS R5 Mark II - CRAW (3:2).CR3'>Canon - EOS R5 Mark II - CRAW (3:2).CR3</a><div class='checksumdata'><span title='sha256 Checksum'>b3c08a5c7a97299dfd58896a12b939e7b43ec78682761812524825e6e5d087be</span>&nbsp;(26.25MB)</div>",
+        "<a target='_blank' href='https://raw.pixls.us/getfile.php/7882/exif/CRAW.CR3.exif.txt'>exifdata</a>"
+      ]
+    }
+  ]
+}

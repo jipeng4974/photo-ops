@@ -66,3 +66,9 @@ vcpkg_installed/
 # test output & cache
 Testing/
 .cache/
+.xmake/
+.tools/
+gcm.cache/
+tests/data/downloads/
+.agents/
+__pycache__/

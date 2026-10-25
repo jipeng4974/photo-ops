@@ -1,0 +1,54 @@
+{
+  "source": "https://github.com/ryanmitts/deptheos",
+  "archive_url": "https://images.deptheos.com/spider1-cr3.zip",
+  "archive_size": 711338937,
+  "retrieved": "2026-10-25",
+  "image_license": "No separate image license found; author explicitly offers as source examples. Local evaluation only, not vendored or redistributed. Repository software license GPL-3.0 is recorded separately.",
+  "files": [
+    {
+      "path": "deptheos/9U1A5301.CR3",
+      "archive_member": "9U1A5301.CR3",
+      "sha256": "febba122e25db00046052b2fa011a1a7c6113448ccdbd20be192ec132c3e813e",
+      "size": 16246432,
+      "zip_crc32": "2c5a856b",
+      "group": "cr3",
+      "purpose": "contiguous prefix (5301-5303) or depth-span sample (5324/5346); subset, not a complete stack"
+    },
+    {
+      "path": "deptheos/9U1A5302.CR3",
+      "archive_member": "9U1A5302.CR3",
+      "sha256": "dee1d48086df709d393f948a894ac4c9815d2ce58a59509739f898d7b60cee6f",
+      "size": 16232096,
+      "zip_crc32": "4e54286e",
+      "group": "cr3",
+      "purpose": "contiguous prefix (5301-5303) or depth-span sample (5324/5346); subset, not a complete stack"
+    },
+    {
+      "path": "deptheos/9U1A5303.CR3",
+      "archive_member": "9U1A5303.CR3",
+      "sha256": "bb63aeb87968242c3fb73ebbf920f011ed9ef4c31f0d7cb669b43294391ad1de",
+      "size": 16239776,
+      "zip_crc32": "68fa153c",
+      "group": "cr3",
+      "purpose": "contiguous prefix (5301-5303) or depth-span sample (5324/5346); subset, not a complete stack"
+    },
+    {
+      "path": "deptheos/9U1A5324.CR3",
+      "archive_member": "9U1A5324.CR3",
+      "sha256": "34ab565473ab0b5eb418b295e4923ae0ac4da7f0b2fdd919555245d37fefdc64",
+      "size": 16413856,
+      "zip_crc32": "c09a19f1",
+      "group": "cr3",
+      "purpose": "contiguous prefix (5301-5303) or depth-span sample (5324/5346); subset, not a complete stack"
+    },
+    {
+      "path": "deptheos/9U1A5346.CR3",
+      "archive_member": "9U1A5346.CR3",
+      "sha256": "d29aa71d26b1a2c793c8e02d1ab06f4245ab3cb4470cf3ff545e1b1b2860b04b",
+      "size": 16130208,
+      "zip_crc32": "8958c488",
+      "group": "cr3",
+      "purpose": "contiguous prefix (5301-5303) or depth-span sample (5324/5346); subset, not a complete stack"
+    }
+  ]
+}

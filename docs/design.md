@@ -1,5 +1,18 @@
 # Design: Opinionated Computational-Photography Operators
 
+## 已落地的格式契约（2026-10-25）
+
+输入以 CR3 为优先，并支持 TIFF、JPEG。内部使用项目自有 float32 linear RGB
+buffer（首版明确为 linear-sRGB / D65）。默认输出为带 ICC 的 16-bit TIFF，
+EXR 与 JPEG 为可选输出，Linear DNG 留待后续。详细支持范围、RAW 解码的
+16-bit 中间结果限制，以及 rendered TIFF/JPEG 无法还原真实 scene radiance
+的区别，见 [基础层架构](architecture.md)。
+
+基础层已包含 module graph、xmake、image abstractions、格式检查、expected/contracts 与 tests。
+CLI 提供 `inspect` / `convert` 和首版 `sunlight-enhance`；后者的实际算法、限制与
+诊断见 [MVP 实现记录](sunlight-enhance.md)。下文的完整 sunlight 设计仍包含未来改进，
+focus-stack 尚未实现。
+
 `photo-ops` is a personal, programmatic landscape-photography toolkit.
 
 It is not intended to replace Lightroom or Photoshop. Its purpose is to encode recurring photographic judgments as deterministic, inspectable operators that can usually run as:
