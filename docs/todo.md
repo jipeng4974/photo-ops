@@ -200,5 +200,9 @@ P1-3 performance optimization
   sequence context、metadata/身份检查与 float32 ICC TIFF 输出；generated DNG 与
   真实 Canon / R8 RAW/CRAW 解码回归通过，三帧 Canon 原尺寸合成已完成。R8 自摄
   bracket 的颜色／摄影质量验收仍待素材，不能由第三方单张替代。
-- P1-2、P1-3 继续；九组 synthetic branches / railings / rocks × defocus 尺度已记录
-  原始失败基线，后续先处理 boundary 再 profile/cache。
+- **P1-2 / v1.3.0**：新增 shared-edge / blur-model boundary policy、独立 boundary/source
+  diagnostics 与逐 pair motion veto；枝条／栏杆／岩石 × 多尺度 defocus，低曝光、
+  彩色/亮前景、反向输入、proxy/tile 等价性和叠加运动回归见
+  [defocus-boundaries](defocus-boundaries.md)。真实 R8 风景遮挡验收仍待素材。
+- P1-3 继续：下一步记录 stage-level profile，按预算选择 tile cache 或 two-pass
+  streaming，再用 R8 分辨率 / 3–8 帧 workload 测量 wall/RSS/scratch。

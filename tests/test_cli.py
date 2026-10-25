@@ -88,6 +88,17 @@ class CommandLine(unittest.TestCase):
             self.assertLessEqual(report["estimated_peak_bytes"], 512*1024*1024)
             self.assertTrue((root/"stack.tif").is_file())
             self.assertFalse(list(root.glob("photo-ops-focus-*")))
+            self.assertTrue((root/"diagnostics/defocus-boundary.tif").is_file())
+            self.assertTrue((root/"diagnostics/boundary-source.tif").is_file())
+            conflict = root/"conflict"
+            conflict.mkdir()
+            (conflict/"defocus-boundary.tif").write_bytes(b"preserve-existing-map")
+            collision = self.run_cli("focus-stack", source, source, "-o", root/"collision.tif",
+                                     "--diagnostics", conflict)
+            self.assertEqual(collision.returncode, 1)
+            self.assertFalse((root/"collision.tif").exists())
+            self.assertEqual((conflict/"defocus-boundary.tif").read_bytes(), b"preserve-existing-map")
+            self.assertFalse((conflict/"source-map.tif").exists())
             again = self.run_cli("focus-stack", source, source, "-o", root/"stack.tif")
             self.assertEqual(again.returncode, 1)
 

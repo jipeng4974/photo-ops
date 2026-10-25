@@ -37,6 +37,7 @@ import photo_ops.output;
 void sunlight_tests();
 void focus_stack_tests();
 void raw_sequence_tests();
+void defocus_tests();
 
 namespace p = photo_ops;
 
@@ -417,6 +418,7 @@ int main() {
     sunlight_tests();
     focus_stack_tests();
     raw_sequence_tests();
+    defocus_tests();
     std::cout << checks << " checks passed\n";
     return 0;
   } catch (const std::exception &e) {

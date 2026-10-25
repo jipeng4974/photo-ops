@@ -154,22 +154,181 @@ image<gray> smooth(image_view<const gray> src, int radius) {
 
 image<rgb_f32> smooth_color(image_view<const rgb_f32> src, int radius) {
   image<rgb_f32> horizontal(src.size()), output(src.size());
-  const float scale = 1.f / (2 * radius + 1);
-  for (std::size_t y = 0; y < src.size().height; ++y)
+  const double scale = 1. / (2 * radius + 1);
+  for (std::size_t y = 0; y < src.size().height; ++y) {
+    std::array<double, 3> sum{};
+    const auto update = [&](rgb_f32 p, double k) {
+      sum[0] += k * p.r;
+      sum[1] += k * p.g;
+      sum[2] += k * p.b;
+    };
+    for (int k = -radius; k <= radius; ++k)
+      update(clamped(src, k, y), 1);
     for (std::size_t x = 0; x < src.size().width; ++x) {
-      rgb_f32 sum{};
-      for (int k = -radius; k <= radius; ++k)
-        sum = add(sum, clamped(src, static_cast<long>(x) + k, y));
-      horizontal.view().at(x, y) = mul(sum, scale);
+      horizontal.view().at(x, y) = {float(sum[0] * scale), float(sum[1] * scale),
+                                    float(sum[2] * scale)};
+      update(clamped(src, static_cast<long>(x) - radius, y), -1);
+      update(clamped(src, static_cast<long>(x) + radius + 1, y), 1);
     }
-  for (std::size_t y = 0; y < src.size().height; ++y)
-    for (std::size_t x = 0; x < src.size().width; ++x) {
-      rgb_f32 sum{};
-      for (int k = -radius; k <= radius; ++k)
-        sum = add(sum, clamped<rgb_f32>(horizontal.view(), x, static_cast<long>(y) + k));
-      output.view().at(x, y) = mul(sum, scale);
+  }
+  for (std::size_t x = 0; x < src.size().width; ++x) {
+    std::array<double, 3> sum{};
+    const auto update = [&](rgb_f32 p, double k) {
+      sum[0] += k * p.r;
+      sum[1] += k * p.g;
+      sum[2] += k * p.b;
+    };
+    for (int k = -radius; k <= radius; ++k)
+      update(clamped<rgb_f32>(horizontal.view(), x, k), 1);
+    for (std::size_t y = 0; y < src.size().height; ++y) {
+      output.view().at(x, y) = {float(sum[0] * scale), float(sum[1] * scale),
+                                float(sum[2] * scale)};
+      update(clamped<rgb_f32>(horizontal.view(), x, static_cast<long>(y) - radius), -1);
+      update(clamped<rgb_f32>(horizontal.view(), x, static_cast<long>(y) + radius + 1), 1);
     }
+  }
   return output;
+}
+
+// Three bounded box passes approximate a Gaussian spread without integer color conversion.
+image<rgb_f32> defocus_blur(image_view<const rgb_f32> source, int radius) {
+  auto result = smooth_color(source, radius);
+  result = smooth_color(result.view(), radius);
+  return smooth_color(result.view(), radius);
+}
+
+image<gray> color_error(image_view<const rgb_f32> a, image_view<const rgb_f32> b) {
+  image<gray> error(a.size());
+  for (std::size_t y = 0; y < a.size().height; ++y)
+    for (std::size_t x = 0; x < a.size().width; ++x) {
+      const auto p = a.at(x, y), q = b.at(x, y);
+      const float r = p.r - q.r, g = p.g - q.g, blue = p.b - q.b;
+      error.view().at(x, y).value = (r * r + g * g + blue * blue) / 3;
+    }
+  return smooth(error.view(), 2);
+}
+
+/// Signed guard: positive chooses this source, negative chooses reference. No depth order
+/// guessed.
+image<gray> defocus_pair(image_view<const rgb_f32> reference, image_view<const rgb_f32> source,
+                         image_view<const gray> transition, const color_encoding &encoding,
+                         std::span<const std::uint16_t> labels, std::size_t source_index,
+                         std::size_t reference_index) {
+  const auto size = reference.size();
+  image<gray> ry(size), sy(size), dot(size), re(size), se(size);
+  for (std::size_t y = 0; y < size.height; ++y)
+    for (std::size_t x = 0; x < size.width; ++x) {
+      ry.view().at(x, y).value = luminance(reference.at(x, y), encoding);
+      sy.view().at(x, y).value = luminance(source.at(x, y), encoding);
+    }
+  ry = smooth(ry.view(), 1);
+  sy = smooth(sy.view(), 1);
+  for (std::size_t y = 0; y < size.height; ++y)
+    for (std::size_t x = 0; x < size.width; ++x) {
+      const double rx = (clamped<gray>(ry.view(), x + 1, y).value -
+                         clamped<gray>(ry.view(), x - 1l, y).value) *
+                        .5;
+      const double rdy = (clamped<gray>(ry.view(), x, y + 1).value -
+                          clamped<gray>(ry.view(), x, y - 1l).value) *
+                         .5;
+      const double sx = (clamped<gray>(sy.view(), x + 1, y).value -
+                         clamped<gray>(sy.view(), x - 1l, y).value) *
+                        .5;
+      const double sdy = (clamped<gray>(sy.view(), x, y + 1).value -
+                          clamped<gray>(sy.view(), x, y - 1l).value) *
+                         .5;
+      dot.view().at(x, y).value = rx * sx + rdy * sdy;
+      re.view().at(x, y).value = rx * rx + rdy * rdy;
+      se.view().at(x, y).value = sx * sx + sdy * sdy;
+    }
+  dot = smooth(dot.view(), 2);
+  re = smooth(re.view(), 2);
+  se = smooth(se.view(), 2);
+  auto original = color_error(reference, source);
+  image<gray> source_fit(size), reference_fit(size), source_radius(size),
+      reference_radius(size), broad_error(size);
+  for (std::size_t y = 0; y < size.height; ++y)
+    for (std::size_t x = 0; x < size.width; ++x) {
+      source_fit.view().at(x, y).value = std::numeric_limits<float>::infinity();
+      reference_fit.view().at(x, y).value = std::numeric_limits<float>::infinity();
+    }
+  for (int radius : {1, 2, 4, 8}) {
+    auto blurred_source = defocus_blur(source, radius);
+    auto fit = color_error(reference, blurred_source.view());
+    for (std::size_t y = 0; y < size.height; ++y)
+      for (std::size_t x = 0; x < size.width; ++x)
+        if (fit.view().at(x, y).value < source_fit.view().at(x, y).value) {
+          source_fit.view().at(x, y) = fit.view().at(x, y);
+          source_radius.view().at(x, y).value = radius;
+        }
+    auto blurred_reference = defocus_blur(reference, radius);
+    fit = color_error(source, blurred_reference.view());
+    for (std::size_t y = 0; y < size.height; ++y)
+      for (std::size_t x = 0; x < size.width; ++x) {
+        if (fit.view().at(x, y).value < reference_fit.view().at(x, y).value) {
+          reference_fit.view().at(x, y) = fit.view().at(x, y);
+          reference_radius.view().at(x, y).value = radius;
+        }
+        if (radius == 8) {
+          const auto a = blurred_source.view().at(x, y), b = blurred_reference.view().at(x, y);
+          broad_error.view().at(x, y).value =
+              std::max({std::abs(a.r - b.r), std::abs(a.g - b.g), std::abs(a.b - b.b)});
+        }
+      }
+  }
+  const auto supported_owner = [&](std::size_t owner, std::size_t x, std::size_t y) {
+    for (int dy = -2; dy <= 2; ++dy)
+      for (int dx = -2; dx <= 2; ++dx) {
+        const auto sx = std::clamp<long>(x + dx, 0, size.width - 1),
+                   sy = std::clamp<long>(y + dy, 0, size.height - 1);
+        if (labels[sy * size.width + sx] == owner)
+          return true;
+      }
+    return false;
+  };
+  // Convert fit errors to evidence and identify shared structural edges with different spread.
+  image<gray> positive_seed(size), negative_seed(size);
+  for (std::size_t y = 0; y < size.height; ++y)
+    for (std::size_t x = 0; x < size.width; ++x) {
+      const float baseline = std::max(original.view().at(x, y).value, 1e-10f);
+      auto &positive = source_fit.view().at(x, y).value,
+           &negative = reference_fit.view().at(x, y).value;
+      positive = std::clamp(1 - positive / baseline, 0.f, 1.f);
+      negative = std::clamp(1 - negative / baseline, 0.f, 1.f);
+      const double r = std::sqrt(std::max(0.f, re.view().at(x, y).value));
+      const double s = std::sqrt(std::max(0.f, se.view().at(x, y).value));
+      const double correlation = dot.view().at(x, y).value / std::max(r * s, 1e-12);
+      const double value =
+          std::max(std::abs(ry.view().at(x, y).value), std::abs(sy.view().at(x, y).value));
+      const bool common = transition.at(x, y).value > 0 && correlation > .75 &&
+                          broad_error.view().at(x, y).value < .01 + .1 * value &&
+                          baseline > 1e-8;
+      if (common && s > 1.5 * r && s > .002 + .08 * value && positive > .5 &&
+          supported_owner(source_index, x, y))
+        positive_seed.view().at(x, y).value = source_radius.view().at(x, y).value;
+      if (common && r > 1.5 * s && r > .002 + .08 * value && negative > .5 &&
+          supported_owner(reference_index, x, y))
+        negative_seed.view().at(x, y).value = reference_radius.view().at(x, y).value;
+    }
+  image<gray> guard(size), seed(size);
+  for (int radius : {1, 2, 4, 8})
+    for (int sign : {1, -1}) {
+      const auto &seeds = sign > 0 ? positive_seed : negative_seed;
+      for (std::size_t y = 0; y < size.height; ++y)
+        for (std::size_t x = 0; x < size.width; ++x)
+          seed.view().at(x, y).value = seeds.view().at(x, y).value == radius;
+      const auto spread = smooth(seed.view(), 3 * radius);
+      const auto &fit = sign > 0 ? source_fit : reference_fit;
+      for (std::size_t y = 0; y < size.height; ++y)
+        for (std::size_t x = 0; x < size.width; ++x) {
+          if (spread.view().at(x, y).value <= 1e-6)
+            continue;
+          float alpha = std::clamp((fit.view().at(x, y).value - .2f) / .4f, 0.f, 1.f);
+          if (alpha > std::abs(guard.view().at(x, y).value))
+            guard.view().at(x, y).value = sign * alpha;
+        }
+    }
+  return guard;
 }
 
 image<gray> focus_score(image_view<const gray> src) {
@@ -275,8 +434,31 @@ image<rgb_f32> proxy(image_view<const rgb_f32> pixels, std::size_t step) {
 struct coherent_maps {
   extent size;
   std::vector<std::uint16_t> label;
-  image<gray> confidence, motion;
+  image<gray> confidence, motion, boundary;
+  std::vector<std::uint16_t> boundary_source;
 };
+
+float boundary_alpha(const coherent_maps &maps, std::size_t gx, std::size_t gy,
+                     std::size_t step) {
+  const auto mx = std::min(gx / step, maps.size.width - 1),
+             my = std::min(gy / step, maps.size.height - 1);
+  if (step == 1)
+    return maps.boundary.view().at(mx, my).value;
+  const auto owner = maps.boundary_source[my * maps.size.width + mx];
+  const double center = (step - 1) * .5, x = (gx - center) / step, y = (gy - center) / step;
+  const long ix = std::floor(x), iy = std::floor(y);
+  const float fx = x - ix, fy = y - iy;
+  float alpha = 0;
+  for (long dy = 0; dy < 2; ++dy)
+    for (long dx = 0; dx < 2; ++dx) {
+      const auto sx = std::clamp<long>(ix + dx, 0, maps.size.width - 1),
+                 sy = std::clamp<long>(iy + dy, 0, maps.size.height - 1);
+      if (maps.boundary_source[sy * maps.size.width + sx] == owner)
+        alpha +=
+            (dx ? fx : 1 - fx) * (dy ? fy : 1 - fy) * maps.boundary.view().at(sx, sy).value;
+    }
+  return alpha;
+}
 
 result<coherent_maps> analyze(const std::vector<frame> &frames, extent full, std::size_t step,
                               std::size_t reference, const color_encoding &encoding) {
@@ -288,15 +470,19 @@ result<coherent_maps> analyze(const std::vector<frame> &frames, extent full, std
     return std::unexpected(ref.error());
   auto low_ref = smooth_color(ref->view(), 3);
   *ref = {};
-  coherent_maps maps{size, std::vector<std::uint16_t>(count, reference), image<gray>(size),
-                     image<gray>(size)};
+  coherent_maps maps{size,
+                     std::vector<std::uint16_t>(count, reference),
+                     image<gray>(size),
+                     image<gray>(size),
+                     image<gray>(size),
+                     std::vector<std::uint16_t>(count, reference)};
   image<gray> best(size), second(size), missing(size);
   for (std::size_t i = 0; i < frames.size(); ++i) {
     auto src = read_patch<rgb_f32>(frames[i].pixels.string() + ".color", size,
                                    {0, 0, size.width, size.height});
     if (!src)
       return std::unexpected(src.error());
-    image<gray> warped(size), valid(size);
+    image<gray> warped(size), valid(size), motion(size);
     image<rgb_f32> color(size);
     const double center = (step - 1) * .5;
     for (std::size_t y = 0; y < size.height; ++y)
@@ -330,9 +516,15 @@ result<coherent_maps> analyze(const std::vector<frame> &frames, extent full, std
           if (std::abs(c.r - r.r) > .06f + .2f * std::abs(r.r) ||
               std::abs(c.g - r.g) > .06f + .2f * std::abs(r.g) ||
               std::abs(c.b - r.b) > .06f + .2f * std::abs(r.b))
-            maps.motion.view().at(x, y).value = 1;
+            motion.view().at(x, y).value = 1;
         }
       }
+    if (auto written = save<rgb_f32>(frames[i].pixels.string() + ".aligned", color.view());
+        !written)
+      return std::unexpected(written.error());
+    if (auto written = save<gray>(frames[i].pixels.string() + ".motion", motion.view());
+        !written)
+      return std::unexpected(written.error());
     if (auto written = save<gray>(frames[i].scores, score.view()); !written)
       return std::unexpected(written.error());
   }
@@ -372,6 +564,69 @@ result<coherent_maps> analyze(const std::vector<frame> &frames, extent full, std
     }
     maps.label = std::move(next);
   }
+  second = {};
+  low_ref = {};
+  image<gray> transition(size);
+  for (std::size_t y = 0; y < size.height; ++y)
+    for (std::size_t x = 0; x < size.width; ++x)
+      for (auto [dx, dy] : {std::pair{-1, 0}, {1, 0}, {0, -1}, {0, 1}}) {
+        const auto sx = std::clamp<long>(x + dx, 0, size.width - 1),
+                   sy = std::clamp<long>(y + dy, 0, size.height - 1);
+        if (maps.label[y * size.width + x] != maps.label[sy * size.width + sx])
+          transition.view().at(x, y).value = 1;
+      }
+  transition = smooth(transition.view(), 8);
+  auto ref_color = read_patch<rgb_f32>(frames[reference].pixels.string() + ".aligned", size,
+                                       {0, 0, size.width, size.height});
+  if (!ref_color)
+    return std::unexpected(ref_color.error());
+  auto reference_score =
+      read_patch<gray>(frames[reference].scores, size, {0, 0, size.width, size.height});
+  if (!reference_score)
+    return std::unexpected(reference_score.error());
+  image<gray> boundary_rank(size);
+  for (std::size_t i = 0; i < frames.size(); ++i) {
+    if (i == reference)
+      continue;
+    auto source_score =
+        read_patch<gray>(frames[i].scores, size, {0, 0, size.width, size.height});
+    if (!source_score)
+      return std::unexpected(source_score.error());
+    auto source = read_patch<rgb_f32>(frames[i].pixels.string() + ".aligned", size,
+                                      {0, 0, size.width, size.height});
+    auto motion = read_patch<gray>(frames[i].pixels.string() + ".motion", size,
+                                   {0, 0, size.width, size.height});
+    if (!source)
+      return std::unexpected(source.error());
+    if (!motion)
+      return std::unexpected(motion.error());
+    auto guard = defocus_pair(ref_color->view(), source->view(), transition.view(), encoding,
+                              maps.label, i, reference);
+    for (std::size_t y = 0; y < size.height; ++y)
+      for (std::size_t x = 0; x < size.width; ++x) {
+        const auto index = y * size.width + x;
+        const float signed_alpha = guard.view().at(x, y).value;
+        const float alpha = missing.view().at(x, y).value ? 0 : std::abs(signed_alpha);
+        const auto owner = signed_alpha > 0 ? i : reference;
+        const float score = signed_alpha > 0 ? source_score->view().at(x, y).value
+                                             : reference_score->view().at(x, y).value;
+        const float prior =
+            maps.label[index] == owner ? 1 : 1 - .8f * maps.confidence.view().at(x, y).value;
+        // Crowded boundaries overlap. Preserve the sharper coherent source where several
+        // pairs explain spread, rather than letting the first input claim every band.
+        const float rank =
+            alpha * (.1f + score / std::max(best.view().at(x, y).value, 1e-10f)) * prior;
+        if (rank > boundary_rank.view().at(x, y).value) {
+          boundary_rank.view().at(x, y).value = rank;
+          maps.boundary.view().at(x, y).value = alpha;
+          maps.boundary_source[index] = owner;
+        }
+        // Each pair must explain its own temporal difference; another moving source still
+        // vetoes it.
+        if (motion->view().at(x, y).value && alpha < .5)
+          maps.motion.view().at(x, y).value = 1;
+      }
+  }
   // Dilate inconsistent regions in proxy space; all contributing sources then use reference.
   auto expanded = smooth(maps.motion.view(), 2);
   for (std::size_t y = 0; y < size.height; ++y)
@@ -380,6 +635,7 @@ result<coherent_maps> analyze(const std::vector<frame> &frames, extent full, std
       if (maps.motion.view().at(x, y).value || missing.view().at(x, y).value) {
         maps.label[y * size.width + x] = reference;
         maps.confidence.view().at(x, y).value = 0;
+        maps.boundary.view().at(x, y).value = 0;
       }
     }
   return maps;
@@ -387,7 +643,8 @@ result<coherent_maps> analyze(const std::vector<frame> &frames, extent full, std
 
 image<gray> tile_weight(image_view<const rgb_f32> warped, const frame &source, extent full,
                         rectangle area, const coherent_maps &maps, std::size_t step,
-                        std::size_t reference, std::size_t i, const color_encoding &encoding) {
+                        std::size_t reference, std::size_t i, const color_encoding &encoding,
+                        image_view<const gray> boundary) {
   image<gray> ymap({area.width, area.height});
   for (std::size_t y = 0; y < area.height; ++y)
     for (std::size_t x = 0; x < area.width; ++x)
@@ -407,6 +664,8 @@ image<gray> tile_weight(image_view<const rgb_f32> warped, const frame &source, e
       w = std::pow(std::max(w, 0.f) + 1e-8f, 2) * prior;
       if (!valid_point(full, p[0], p[1]))
         w = 0;
+      if (maps.boundary_source[my * maps.size.width + mx] != i)
+        w *= 1 - .999f * boundary.at(x, y).value;
       if (maps.motion.view().at(mx, my).value)
         w = i == reference ? 1 : 0;
     }
@@ -424,15 +683,20 @@ result<image<rgb_f32>> fuse_tile(const std::vector<frame> &frames, extent full, 
     denominator.emplace_back(level_size);
     level_size = {(level_size.width + 1) / 2, (level_size.height + 1) / 2};
   }
+  image<gray> boundary({area.width, area.height});
+  for (std::size_t y = 0; y < area.height; ++y)
+    for (std::size_t x = 0; x < area.width; ++x)
+      boundary.view().at(x, y).value = boundary_alpha(maps, area.x + x, area.y + y, step);
   // Normalize masks at the base before reducing them; otherwise motion weights and
   // ordinary focus energies can differ by orders of magnitude and create broad halos.
   image<gray> total({area.width, area.height});
+  image<rgb_f32> boundary_pixels({area.width, area.height});
   for (std::size_t i = 0; i < frames.size(); ++i) {
     auto warped = warp_patch(frames[i], full, area);
     if (!warped)
       return std::unexpected(warped.error());
-    auto weight =
-        tile_weight(warped->view(), frames[i], full, area, maps, step, reference, i, encoding);
+    auto weight = tile_weight(warped->view(), frames[i], full, area, maps, step, reference, i,
+                              encoding, boundary.view());
     for (std::size_t y = 0; y < area.height; ++y)
       for (std::size_t x = 0; x < area.width; ++x)
         total.view().at(x, y).value += weight.view().at(x, y).value;
@@ -441,11 +705,18 @@ result<image<rgb_f32>> fuse_tile(const std::vector<frame> &frames, extent full, 
     auto warped = warp_patch(frames[i], full, area);
     if (!warped)
       return std::unexpected(warped.error());
-    auto weight =
-        tile_weight(warped->view(), frames[i], full, area, maps, step, reference, i, encoding);
+    auto weight = tile_weight(warped->view(), frames[i], full, area, maps, step, reference, i,
+                              encoding, boundary.view());
     for (std::size_t y = 0; y < area.height; ++y)
       for (std::size_t x = 0; x < area.width; ++x)
         weight.view().at(x, y).value /= total.view().at(x, y).value;
+    for (std::size_t y = 0; y < area.height; ++y)
+      for (std::size_t x = 0; x < area.width; ++x) {
+        const auto mx = std::min((area.x + x) / step, maps.size.width - 1),
+                   my = std::min((area.y + y) / step, maps.size.height - 1);
+        if (maps.boundary_source[my * maps.size.width + mx] == i)
+          boundary_pixels.view().at(x, y) = warped->view().at(x, y);
+      }
     std::vector<image<rgb_f32>> gaussian;
     std::vector<image<gray>> weights;
     gaussian.push_back(std::move(*warped));
@@ -499,8 +770,12 @@ result<image<rgb_f32>> fuse_tile(const std::vector<frame> &frames, extent full, 
         const auto p = inverse(source.alignment, area.x + x, area.y + y);
         fallback |= !valid_point(full, p[0], p[1]);
       }
+      const float alpha = boundary.view().at(x, y).value;
       if (fallback)
         result.view().at(x, y) = ref->view().at(x, y);
+      else if (alpha > 0)
+        result.view().at(x, y) = add(mul(result.view().at(x, y), 1 - alpha),
+                                     mul(boundary_pixels.view().at(x, y), alpha));
     }
   return result;
 }
@@ -569,14 +844,19 @@ result<void> diagnostics(const std::string &directory, const coherent_maps &maps
     return fail(error_code::io, "focus diagnostics", ec.message(), directory);
   const fs::path root(directory);
   image<linear_rgb> preview(maps.size);
-  for (const auto *name : {"source-map.tif", "confidence.tif", "motion.tif"}) {
+  for (const auto *name : {"source-map.tif", "confidence.tif", "motion.tif",
+                           "defocus-boundary.tif", "boundary-source.tif"}) {
     for (std::size_t y = 0; y < maps.size.height; ++y)
       for (std::size_t x = 0; x < maps.size.width; ++x) {
         const float value =
             std::string_view(name) == "source-map.tif"
                 ? maps.label[y * maps.size.width + x] / float(report.frames.size() - 1)
             : std::string_view(name) == "confidence.tif" ? maps.confidence.view().at(x, y).value
-                                                         : maps.motion.view().at(x, y).value;
+            : std::string_view(name) == "motion.tif"     ? maps.motion.view().at(x, y).value
+            : std::string_view(name) == "defocus-boundary.tif"
+                ? maps.boundary.view().at(x, y).value
+                : maps.boundary_source[y * maps.size.width + x] /
+                      float(report.frames.size() - 1);
         preview.view().at(x, y) = {value, value, value};
       }
     if (auto written = write_image((root / name).string(), preview.view()); !written)
@@ -598,7 +878,7 @@ result<void> diagnostics(const std::string &directory, const coherent_maps &maps
   std::ofstream file(transaction->temporary_path());
   file.imbue(std::locale::classic());
   file << std::setprecision(12);
-  file << "{\n  \"algorithm\": \"focus-stack-classical-v1\",\n"
+  file << "{\n  \"algorithm\": \"focus-stack-defocus-v1\",\n"
        << "  \"working_space\": \""
        << (report.raw_context ? "float32 linear-Rec.2020/D65" : "float32 linear-sRGB/D65")
        << "\",\n"
@@ -616,6 +896,7 @@ result<void> diagnostics(const std::string &directory, const coherent_maps &maps
        << ",\n  \"estimated_peak_bytes\": " << report.estimated_peak_bytes
        << ",\n  \"scratch_bytes\": " << report.scratch_bytes
        << ",\n  \"motion_fraction\": " << report.motion_fraction
+       << ",\n  \"defocus_boundary_fraction\": " << report.defocus_boundary_fraction
        << ",\n  \"low_confidence_fraction\": " << report.low_confidence_fraction << ",\n";
   if (report.raw_context) {
     const auto &context = *report.raw_context;
@@ -701,8 +982,9 @@ result<focus_stack_report> stack_focus(std::span<const std::string> inputs,
   if (fs::symlink_status(output, ec).type() != fs::file_type::not_found && !ec)
     return fail(error_code::io, "focus output", "output already exists", output);
   if (!options.diagnostics_directory.empty()) {
-    for (auto name : {"source-map.tif", "confidence.tif", "motion.tif", "before.jpg",
-                      "after.jpg", "report.json"}) {
+    for (auto name :
+         {"source-map.tif", "confidence.tif", "motion.tif", "before.jpg", "after.jpg",
+          "defocus-boundary.tif", "boundary-source.tif", "report.json"}) {
       const auto path = fs::path(options.diagnostics_directory) / name;
       const auto status = fs::symlink_status(path, ec);
       if (!ec && status.type() != fs::file_type::not_found)
@@ -773,7 +1055,7 @@ result<focus_stack_report> stack_focus(std::span<const std::string> inputs,
   while (true) {
     q = ((size.width + step - 1) / step) * ((size.height + step - 1) / step);
     registration = 512 * q + 128 * mib;
-    fusion = 128 * q + 512 * (tile + 2 * halo) * (tile + 2 * halo) + 128 * mib;
+    fusion = 256 * q + 512 * (tile + 2 * halo) * (tile + 2 * halo) + 128 * mib;
     if (std::max(registration, fusion) <= usable)
       break;
     if (registration > usable && (size.width + step - 1) / step >= 64 &&
@@ -798,7 +1080,7 @@ result<focus_stack_report> stack_focus(std::span<const std::string> inputs,
                              ? inputs.size() / 2
                              : options.reference_index;
   const std::size_t scratch_bytes = (inputs.size() + 1) * 12 * pixels +
-                                    inputs.size() * (20 * q + 4 * refinement_pixels()) +
+                                    inputs.size() * (36 * q + 4 * refinement_pixels()) +
                                     6 * pixels;
   ec.clear();
   const auto scratch_parent = options.scratch_directory.empty()
@@ -980,6 +1262,10 @@ result<focus_stack_report> stack_focus(std::span<const std::string> inputs,
     f.selected_fraction /= q;
   report.motion_fraction /= q;
   report.low_confidence_fraction /= q;
+  for (std::size_t y = 0; y < maps->size.height; ++y)
+    for (auto value : maps->boundary.view().row(y))
+      report.defocus_boundary_fraction += value.value > .05;
+  report.defocus_boundary_fraction /= q;
   const auto fused_path = scratch.path / "fused.rgb";
   std::fstream fused(fused_path,
                      std::ios::binary | std::ios::in | std::ios::out | std::ios::trunc);

@@ -162,6 +162,7 @@ photo::result<void> run(const arguments &options) {
               << "\nreference_index: " << stacked->reference_index
               << "\nestimated_peak_bytes: " << stacked->estimated_peak_bytes
               << "\nmotion_fraction: " << stacked->motion_fraction
+              << "\ndefocus_boundary_fraction: " << stacked->defocus_boundary_fraction
               << "\nlow_confidence_fraction: " << stacked->low_confidence_fraction << '\n';
     std::cout << "working_space: "
               << (stacked->raw_context ? "scene-linear Rec.2020/D65"

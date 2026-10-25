@@ -1,0 +1,82 @@
+{
+  "algorithm_version": "1.2.0",
+  "dimensions": [
+    385,
+    257
+  ],
+  "description": "Deterministic near-focused foreground vs Gaussian-defocused occluder on a sharp background. Values are linear RGB red-channel MAE; synthetic camera motion is absent.",
+  "cases": [
+    {
+      "case": "branch-2",
+      "boundary_mae": 0.005322864086055393,
+      "outside_halo_mae": 0.009788873183398852,
+      "near_boundary_mae": 0.004756462597224458,
+      "far_boundary_mae": 0.10215551989885999,
+      "motion_fraction": 0
+    },
+    {
+      "case": "branch-4",
+      "boundary_mae": 0.07410006722797761,
+      "outside_halo_mae": 0.029000897372766354,
+      "near_boundary_mae": 0.006327641510259959,
+      "far_boundary_mae": 0.12456053568449034,
+      "motion_fraction": 0.04329678104
+    },
+    {
+      "case": "branch-7",
+      "boundary_mae": 0.11159631380227691,
+      "outside_halo_mae": 0.05792957656717818,
+      "near_boundary_mae": 0.007397902321793024,
+      "far_boundary_mae": 0.1379298790814373,
+      "motion_fraction": 0.0619131840922
+    },
+    {
+      "case": "railing-2",
+      "boundary_mae": 0.017385653736140646,
+      "outside_halo_mae": 0.0364334064650182,
+      "near_boundary_mae": 0.01722759610766599,
+      "far_boundary_mae": 0.09658053601690336,
+      "motion_fraction": 0
+    },
+    {
+      "case": "railing-4",
+      "boundary_mae": 0.06860282226751528,
+      "outside_halo_mae": 0.03168823479648248,
+      "near_boundary_mae": 0.02594617619788579,
+      "far_boundary_mae": 0.1241819913881373,
+      "motion_fraction": 0.0659457274243
+    },
+    {
+      "case": "railing-7",
+      "boundary_mae": 0.11323123571848459,
+      "outside_halo_mae": 0.058404134290774165,
+      "near_boundary_mae": 0.03076948117595791,
+      "far_boundary_mae": 0.13778704039417386,
+      "motion_fraction": 0.107635555106
+    },
+    {
+      "case": "rock-2",
+      "boundary_mae": 0.01856027810199935,
+      "outside_halo_mae": 0.035677037324226134,
+      "near_boundary_mae": 0.018573356985195508,
+      "far_boundary_mae": 0.09704829154828838,
+      "motion_fraction": 0
+    },
+    {
+      "case": "rock-4",
+      "boundary_mae": 0.030846348648755195,
+      "outside_halo_mae": 0.02781984075477031,
+      "near_boundary_mae": 0.02059489316290758,
+      "far_boundary_mae": 0.09672507812832389,
+      "motion_fraction": 0.00760018191925
+    },
+    {
+      "case": "rock-7",
+      "boundary_mae": 0.07921596003128667,
+      "outside_halo_mae": 0.06451404058438014,
+      "near_boundary_mae": 0.02075623530391855,
+      "far_boundary_mae": 0.09795646697006972,
+      "motion_fraction": 0.0407802314417
+    }
+  ]
+}

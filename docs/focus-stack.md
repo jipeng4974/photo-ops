@@ -34,6 +34,14 @@ RAW 与 rendered 不能混合，曝光／black／camera mode 不兼容整组拒�
 中间帧，颜色 context 一旦冻结不再由 registration 重算。`--aligned` 只跳过 registration，
 不跳过 metadata/context 校验。streaming JPEG/EXR 最终输出仍未加入。
 
+## v1.3 Defocus / occlusion boundary
+
+在 coherent focus-label transition 附近，以 shared-edge 梯度方向、受限 blur-model
+fit 与低频颜色一致性区分静态 defocus spread 和 motion。边界使用一个可解释的
+coherent source；多 source 重叠时保留已有 focus prior，真实 motion 仍 veto 并
+精确回退 reference。新增 `defocus-boundary.tif` / `boundary-source.tif` 与 boundary
+fraction。模型、独立 fixture 和限制见 [defocus-boundaries](defocus-boundaries.md)。
+
 ## v1.1 精配准
 
 SIFT/RANSAC 保留为 coarse initialization。顺序解码时另外写入更高分辨率的
@@ -111,9 +119,9 @@ single_frame_decode_rendered = 24*P + largest_input_file_bytes + 128 MiB
 single_frame_decode_RAW = 40*raw_sensor_pixels + input_file_bytes + 256 MiB
 R = refinement proxy pixel count
 registration = max(512*Q, 128*R) + 128 MiB
-coherent_maps_and_fusion = 128*Q + 512*T + 128 MiB
+coherent_maps_and_fusion = 256*Q + 512*T + 128 MiB
 reported_peak = max(these three stages) / 0.8
-scratch_estimate = 12*(N+1)*P + N*(20*Q + 4*R) + output_bytes
+scratch_estimate = 12*(N+1)*P + N*(36*Q + 4*R) + output_bytes
 output_bytes = 6*P (rendered) or 12*P (RAW)
 ```
 

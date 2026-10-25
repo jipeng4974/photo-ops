@@ -44,7 +44,7 @@ struct focus_stack_report {
   std::size_t tile_size = 0, proxy_step = 0;
   std::size_t refinement_step = 0;
   std::size_t estimated_peak_bytes = 0, scratch_bytes = 0;
-  double motion_fraction = 0, low_confidence_fraction = 0;
+  double motion_fraction = 0, low_confidence_fraction = 0, defocus_boundary_fraction = 0;
   std::vector<focus_stack_frame_report> frames;
   color_encoding encoding{rgb_primaries::srgb};
   std::optional<raw_sequence_context> raw_context;
