@@ -1,5 +1,5 @@
 set_project("photo-ops")
-set_version("0.3.1")
+set_version("0.3.2")
 set_xmakever("3.1.2")
 set_languages("c++26")
 add_cxxflags("-fcontracts", "-fcontract-evaluation-semantic=quick_enforce")
