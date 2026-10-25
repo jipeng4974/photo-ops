@@ -20,8 +20,7 @@ struct decoded_image {
 /// TIFF: stripped, contiguous 8/16-bit RGB, top-left, no alpha; ICC supported.
 /// JPEG: 8-bit RGB/grayscale, ICC supported; stored orientation (no EXIF rotation).
 /// Return a recoverable format/decode/I/O error; resource exhaustion may still throw.
-[[nodiscard]] result<decoded_image> read_image(const std::string &path,
-                                               bool half_size_raw = false);
+result<decoded_image> read_image(const std::string &path, bool half_size_raw = false);
 
 /// Output encodings are separate from the linear working representation.
 enum class output_format { tiff16, exr32, jpeg };
@@ -36,10 +35,9 @@ struct output_options {
 /// EXR preserves finite negative/HDR values in float32 linear sRGB/D65.
 /// Atomically publishes a completed file; never overwrites an existing path.
 /// Reject unsupported options, invalid output data and I/O failures through the result.
-[[nodiscard]] result<void> write_image(const std::string &path,
-                                       image_view<const linear_rgb> pixels,
-                                       output_options options = {});
+result<void> write_image(const std::string &path, image_view<const linear_rgb> pixels,
+                         output_options options = {});
 
 /// Report whether this build includes the optional OpenEXR backend.
-[[nodiscard]] bool exr_available() noexcept;
+bool exr_available() noexcept;
 } // namespace photo_ops

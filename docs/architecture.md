@@ -51,7 +51,7 @@ src/
   cli/main.cpp
 tests/
   foundation.cpp, sunlight.cpp
-  test_configure.py, test_cli.py
+  test_configure.py, test_cli.py, test_result_usage.py
   data/*manifest.json, *provenance.json
 ```
 

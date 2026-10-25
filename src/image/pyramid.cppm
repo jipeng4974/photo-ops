@@ -9,7 +9,7 @@ import photo_ops.color;
 
 export namespace photo_ops {
 /// Allocate a linear luminance proxy; the source remains unchanged.
-[[nodiscard]] image<gray> luminance_image(image_view<const linear_rgb> source) {
+image<gray> luminance_image(image_view<const linear_rgb> source) {
   image<gray> result(source.size());
   for (std::size_t y = 0; y < source.size().height; ++y)
     for (std::size_t x = 0; x < source.size().width; ++x)
@@ -19,7 +19,7 @@ export namespace photo_ops {
 
 /// Separable [1 4 6 4 1]/16, replicate borders, then sample even coordinates.
 /// Odd sizes round up. No implicit gamma encoding or rescaling of luminance.
-[[nodiscard]] image<gray> downsample(image_view<const gray> source) {
+image<gray> downsample(image_view<const gray> source) {
   const auto size = source.size();
   if (!size.width)
     return {};
@@ -52,8 +52,7 @@ export namespace photo_ops {
 }
 
 /// Owns levels below the borrowed base; stops at 1x1 or max_levels (includes base).
-[[nodiscard]] std::vector<image<gray>> gaussian_levels(image_view<const gray> base,
-                                                       std::size_t max_levels) {
+std::vector<image<gray>> gaussian_levels(image_view<const gray> base, std::size_t max_levels) {
   std::vector<image<gray>> levels;
   while (max_levels > 1 && base.size().width &&
          (base.size().width > 1 || base.size().height > 1)) {

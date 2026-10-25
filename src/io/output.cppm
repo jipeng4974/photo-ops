@@ -10,7 +10,7 @@ export namespace photo_ops {
 /// Not a multi-file transaction or a guarantee of directory durability after power loss.
 class atomic_output {
 public:
-  [[nodiscard]] static result<atomic_output> create(const std::string &destination);
+  static result<atomic_output> create(const std::string &destination);
   atomic_output(const atomic_output &) = delete;
   atomic_output &operator=(const atomic_output &) = delete;
   atomic_output(atomic_output &&other) noexcept;
@@ -18,9 +18,9 @@ public:
   ~atomic_output();
 
   /// Borrow the reserved path for an encoder; close/check the encoder before commit().
-  [[nodiscard]] const std::string &temporary_path() const noexcept;
+  const std::string &temporary_path() const noexcept;
   /// Sync file data and publish using renameat2(RENAME_NOREPLACE); errors retain the target.
-  [[nodiscard]] result<void> commit();
+  result<void> commit();
 
 private:
   atomic_output(std::string temporary, std::string destination, int descriptor) noexcept;

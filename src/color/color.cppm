@@ -6,17 +6,17 @@ import photo_ops.image;
 
 export namespace photo_ops {
 /// Decode the extended sRGB transfer function, retaining negative and HDR values.
-[[nodiscard]] float srgb_to_linear(float v) noexcept {
+float srgb_to_linear(float v) noexcept {
   return v <= 0.04045f ? v / 12.92f : std::pow((v + 0.055f) / 1.055f, 2.4f);
 }
 
 /// Encode linear RGB with the extended sRGB transfer function; no clipping occurs.
-[[nodiscard]] float linear_to_srgb(float v) noexcept {
+float linear_to_srgb(float v) noexcept {
   return v <= 0.0031308f ? v * 12.92f : 1.055f * std::pow(v, 1.f / 2.4f) - 0.055f;
 }
 
 /// Relative Rec.709 luminance of linear-sRGB / D65, without a tone curve.
-[[nodiscard]] float luminance(linear_rgb p) noexcept {
+float luminance(linear_rgb p) noexcept {
   return 0.2126f * p.r + 0.7152f * p.g + 0.0722f * p.b;
 }
 
@@ -26,7 +26,7 @@ struct oklab {
 };
 
 /// Convert linear-sRGB / D65 to OKLab; signed cube roots support negative channels.
-[[nodiscard]] oklab to_oklab(linear_rgb p) noexcept {
+oklab to_oklab(linear_rgb p) noexcept {
   const auto l = std::cbrt(0.4122214708f * p.r + 0.5363325363f * p.g + 0.0514459929f * p.b);
   const auto m = std::cbrt(0.2119034982f * p.r + 0.6806995451f * p.g + 0.1073969566f * p.b);
   const auto s = std::cbrt(0.0883024619f * p.r + 0.2817188376f * p.g + 0.6299787005f * p.b);
@@ -36,7 +36,7 @@ struct oklab {
 }
 
 /// Invert OKLab into linear-sRGB / D65 without gamut clipping.
-[[nodiscard]] linear_rgb from_oklab(oklab p) noexcept {
+linear_rgb from_oklab(oklab p) noexcept {
   const auto l = p.l + 0.3963377774f * p.a + 0.2158037573f * p.b;
   const auto m = p.l - 0.1055613458f * p.a - 0.0638541728f * p.b;
   const auto s = p.l - 0.0894841775f * p.a - 1.2914855480f * p.b;

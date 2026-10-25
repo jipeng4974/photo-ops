@@ -33,6 +33,6 @@ struct sunlight_result {
 /// Inputs remain untouched. Output owns an explicit full-frame copy and full-resolution mask.
 /// Negative/HDR pixels remain unchanged; no global tone mapping, dehazing or sharpening occurs.
 /// Empty/non-finite data and invalid options return errors. No candidate is a successful no-op.
-[[nodiscard]] result<sunlight_result> enhance_sunlight(image_view<const linear_rgb> source,
-                                                       sunlight_options options = {});
+result<sunlight_result> enhance_sunlight(image_view<const linear_rgb> source,
+                                         sunlight_options options = {});
 } // namespace photo_ops

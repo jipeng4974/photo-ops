@@ -13,6 +13,5 @@ struct raw_options {
 // Legacy single-frame path: camera WB, linear sRGB/D65, 16-bit intermediate.
 // Not sequence-consistent; see docs/raw-pipeline.md for the wide-gamut/context contract.
 /// Decode failures carry a stage and path; malformed input is never a contract violation.
-[[nodiscard]] result<image<linear_rgb>> decode_raw(const std::string &path,
-                                                   raw_options options = {});
+result<image<linear_rgb>> decode_raw(const std::string &path, raw_options options = {});
 } // namespace photo_ops

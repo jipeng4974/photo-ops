@@ -21,7 +21,7 @@ struct image_statistics {
 };
 
 /// Summarize finite samples; an image with no finite samples has infinite range sentinels.
-[[nodiscard]] image_statistics statistics(image_view<const linear_rgb> image) {
+image_statistics statistics(image_view<const linear_rgb> image) {
   image_statistics result;
   for (std::size_t y = 0; y < image.size().height; ++y)
     for (auto p : image.row(y)) {
@@ -45,9 +45,9 @@ struct image_statistics {
 /// Write paired JPEG previews (with the same documented exposure lift), mask TIFF and JSON.
 /// Each file is atomic and never overwritten; JSON is published last, not a directory
 /// transaction. Image output and diagnostic I/O errors are separate.
-[[nodiscard]] result<void> write_sunlight_diagnostics(const std::string &directory,
-                                                      image_view<const linear_rgb> source,
-                                                      const sunlight_result &enhanced)
+result<void> write_sunlight_diagnostics(const std::string &directory,
+                                        image_view<const linear_rgb> source,
+                                        const sunlight_result &enhanced)
     pre(source.size().width > 0) pre(source.size().width == enhanced.pixels.size().width)
         pre(source.size().height == enhanced.pixels.size().height)
             pre(source.size().width == enhanced.mask.size().width)

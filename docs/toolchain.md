@@ -255,7 +255,8 @@ Prefer:
 - `std::span` / `std::mdspan` when they make layout and extents clear;
 - concepts when they express real constraints;
 - ranges when they improve readability;
-- `[[nodiscard]]`, `noexcept`, and const-correctness when semantically justified;
+- `noexcept` and const-correctness when semantically justified;
+- type-level discard obligations as defined in [cpp-style.md](cpp-style.md), without blanket function-level `[[nodiscard]]`;
 - compile-time composition over unnecessary runtime indirection;
 - small cohesive APIs;
 - free functions where object identity is unnecessary.

@@ -26,11 +26,13 @@ struct error {
 };
 
 /// A value or a recoverable failure; allocation failures may still throw std::bad_alloc.
+/// Pinned libstdc++ marks expected itself nodiscard, including expected<void, E>.
+/// Keep the alias: producers and monadic operations retain the type-level diagnostic.
 template <class T> using result = std::expected<T, error>;
 
 /// Construct a failure without exceptions or an implicit success value.
-[[nodiscard]] std::unexpected<error> fail(error_code code, std::string operation,
-                                          std::string message, std::string path = {}) {
+std::unexpected<error> fail(error_code code, std::string operation, std::string message,
+                            std::string path = {}) {
   return std::unexpected(
       error{code, std::move(operation), std::move(message), std::move(path)});
 }

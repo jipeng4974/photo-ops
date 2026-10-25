@@ -25,6 +25,30 @@ formatter 升级若引起样式变化，显式 review 后提交，不自动扩�
 格式之外，公共接口用 `///` 解释单位、所有权、颜色假设、返回值与错误语义；
 函数内按逻辑阶段分段，对意图不直观的步骤解释原因，不逐句翻译代码。
 
+## 丢弃返回值与 `[[nodiscard]]`
+
+不为 getter、accessor、数学函数、颜色／图像变换或普通返回值函数添加
+`[[nodiscard]]`。是否有返回值本身并不构成“必须使用”的语义；不把可能误用的
+每一种写法都升级为编译诊断。需要检查的是错误结果等确有处理义务的类型。
+
+义务属于返回类型时优先在类型层表达，不在每个 producer 上重复标注。
+`result<T>` 继续直接 alias 到 `std::expected<T, error>`：虽然 alias 声明不能
+给底层类型附加 `[[nodiscard]]`，**当前固定 GCC 16/libstdc++ 已经把 expected
+主模板与 void specialization 都标为类型级 `[[nodiscard]]`**，经 named module
+导出后仍有效。因此既不需要新增 wrapper，也不需要继承 expected，更不需要
+重写它的构造、cv/ref-qualified accessors 和 monadic API。
+
+项目中返回 `result<T>` 的函数不再重复标注，普通 `fail()` helper 返回的
+`std::unexpected<error>` 也不额外标注。`transform` / `and_then` 等产生的新
+expected 仍保留底层类型的诊断。明确且有理由地忽略结果时可写 `(void)expression`；
+不要用此方式隐藏正常错误处理。
+
+这依赖已验证的 **libstdc++ 属性**，不是对所有标准库的可移植性承诺。
+`tests/test_result_usage.py` 编译真实项目模块，验证丢弃 `result<int>`、
+`result<void>` 及 monadic 结果会触发 `-Werror=unused-result`，正常处理／显式
+忽略结果和普通图像／数学 API 则可编译。升级 toolchain 时若行为变化，先检查
+库的诊断支持，再评估少量边界标注是否必要，不预先引入 result 框架。
+
 ## 可恢复错误和调用违约
 
 依据 [To Err is Human（CppCon 2025）](https://github.com/CppCon/CppCon2025/blob/main/Presentations/To_Err_is_Human.pdf)

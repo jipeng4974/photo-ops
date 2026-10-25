@@ -83,7 +83,7 @@ Prefer:
 - ranges when they improve readability;
 - compile-time structure over unnecessary runtime abstraction;
 - small cohesive types and free functions over inheritance-heavy object hierarchies;
-- `[[nodiscard]]`, `noexcept`, and const-correctness where semantically appropriate.
+- `noexcept` and const-correctness where semantically appropriate.
 
 Avoid:
 
@@ -97,6 +97,20 @@ Avoid:
 - language-feature tourism: do not use a C++26 feature merely to prove the project is C++26.
 
 Use new language/library features when they make the code more direct, safer, or more expressive.
+
+## Discarded return values
+
+Do not mark getters, mathematical functions, accessors, transformations, or
+ordinary value-returning functions `[[nodiscard]]`. Prefer type-level
+`[[nodiscard]]` when the obligation belongs to the result type itself rather
+than to one particular producer function. Do not repeat it on functions
+returning such a type.
+
+Keep `result<T>` as an alias of `std::expected<T, error>`: the pinned GCC/libstdc++
+already marks `std::expected` (including its void specialization) `[[nodiscard]]`.
+Do not add an expected wrapper or inheritance layer just to attach an attribute.
+Verify this diagnostic when upgrading the toolchain; it is a validated library
+property, not an assumption about every standard-library implementation.
 
 ## Modules
 

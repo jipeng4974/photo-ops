@@ -31,7 +31,7 @@ struct extent {
   std::size_t height{};
 
   /// Check the canonical empty/nonempty shape without allocating storage.
-  [[nodiscard]] bool valid() const noexcept {
+  bool valid() const noexcept {
     return (width == 0) == (height == 0);
   }
 };
@@ -67,34 +67,34 @@ public:
   }
 
   /// Logical pixel dimensions, excluding padding.
-  [[nodiscard]] extent size() const noexcept {
+  extent size() const noexcept {
     return size_;
   }
 
   /// Number of pixel slots between successive row starts.
-  [[nodiscard]] std::size_t stride() const noexcept {
+  std::size_t stride() const noexcept {
     return stride_;
   }
 
   /// Includes padding and any accessible trailing storage; row() excludes padding.
-  [[nodiscard]] std::span<Pixel> storage() const noexcept {
+  std::span<Pixel> storage() const noexcept {
     return storage_;
   }
 
   /// Borrow one logical row. The caller must supply an in-range row index.
-  [[nodiscard]] std::span<Pixel> row(std::size_t y) const {
+  std::span<Pixel> row(std::size_t y) const {
     contract_assert(y < size_.height);
     return storage_.subspan(y * stride_, size_.width);
   }
 
   /// Access an in-range pixel. A const view object can still reference mutable pixels.
-  [[nodiscard]] Pixel &at(std::size_t x, std::size_t y) const {
+  Pixel &at(std::size_t x, std::size_t y) const {
     contract_assert(x < size_.width && y < size_.height);
     return row(y)[x];
   }
 
   /// Borrow an in-bounds crop, retaining stride. A zero-area crop becomes an empty view.
-  [[nodiscard]] image_view subview(rectangle region) const {
+  image_view subview(rectangle region) const {
     contract_assert(region.x <= size_.width && region.y <= size_.height);
     contract_assert(region.width <= size_.width - region.x);
     contract_assert(region.height <= size_.height - region.y);
@@ -149,23 +149,23 @@ public:
   }
 
   /// Check untrusted dimensions before calling the constructor at a file/user boundary.
-  [[nodiscard]] static bool can_hold(extent size) noexcept {
+  static bool can_hold(extent size) noexcept {
     return size.valid() &&
            (size.height == 0 || size.width <= std::vector<Pixel>{}.max_size() / size.height);
   }
 
   /// Logical pixel dimensions, excluding padding.
-  [[nodiscard]] extent size() const noexcept {
+  extent size() const noexcept {
     return size_;
   }
 
   /// Borrow mutable pixels. Reacquire views after moving or replacing the owner.
-  [[nodiscard]] image_view<Pixel> view() & {
+  image_view<Pixel> view() & {
     return {pixels_, size_, size_.width};
   }
 
   /// Borrow read-only pixels; the owner must remain alive.
-  [[nodiscard]] image_view<const Pixel> view() const & {
+  image_view<const Pixel> view() const & {
     return {pixels_, size_, size_.width};
   }
 
@@ -174,7 +174,7 @@ public:
   image_view<const Pixel> view() const && = delete;
 
   /// Explicitly allocate and copy all pixels; layout remains contiguous.
-  [[nodiscard]] image clone() const {
+  image clone() const {
     image copy(size_);
     std::ranges::copy(pixels_, copy.pixels_.begin());
     return copy;
