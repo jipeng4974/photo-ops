@@ -4,6 +4,25 @@ This repository contains opinionated computational-photography operators for lan
 
 The project is intentionally narrow: encode recurring photographic judgments as deterministic, inspectable, high-quality image-processing operators rather than build a general photo editor.
 
+## Documentation language
+
+Write project documentation primarily in Chinese by default. Keep `README.md` and
+`AGENTS.md` fully in English. Technical terms, identifiers, commands, and code examples
+may remain in their original language within Chinese documentation.
+
+## Versioning and Git workflow
+
+For every completed update, including documentation changes, bug fixes, and minor
+or major features:
+
+- Bump the project's `major.minor.patch` version in `xmake.lua`. Use a patch bump
+  for fixes and documentation or maintenance changes, a minor bump for compatible
+  new functionality, and a major bump for incompatible changes.
+- Commit the update with the new version number in the commit subject and a
+  moderately detailed description of what changed and why in the commit body.
+  Include relevant validation results and any material limitations.
+- Push the commit to `origin` on the current branch.
+
 ## Read first
 
 Before making architectural or algorithmic changes, read:
