@@ -515,3 +515,7 @@ cache 与 streaming 输出一致。profiling、实测 binary 身份和资源记�
 consumers，避免混用旧 BMI。clean debug + EXR + ASan/UBSan 完整 C++ 与
 CLI／工具链 Python 回归通过，无 sanitizer 错误；release / EXR 关闭另通过 R8
 RAW／CRAW 和相邻 Canon 帧的 opt-in 解码／context／颜色检查。
+
+最终已 clean rebuild 并恢复 debug + EXR、关闭 sanitizer 的日常开发配置；
+未修改系统包或桌面配置。v1.5 外部 R8 manifest 工具增加九项离线 Python 回归，
+与 CLI／工具链等合计 22 项（1 项可选 sunlight 实拍检查跳过）。

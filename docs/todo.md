@@ -208,3 +208,10 @@ P1-3 performance optimization
   two-pass fallback，减少重复 warp / focus score 并优化逐行访问。PCB 七帧和 R8
   原尺寸 3／8 次重复输入的 wall／RSS／scratch 对比见 [performance](performance.md)。
   R8 重复输入仅验证资源／identity；真实 R8 bracket 的摄影验收仍待拍摄。
+
+- **素材准备 / v1.5.0**：提供外部 R8 capture 的 metadata 模板、有序 CR3 manifest 登记与
+  SHA-256 校验，默认 private／exploration，登记与 decoder／画质验收分开；使用方式见
+  [data preparation](data_prep.md)。工具不会生成或代替原计划的自摄 bracket。
+
+四项工程变更已落地；真实自摄 R8 的 breathing、遮挡、手持、广角等专项采集及摄影
+验收仍待素材。公开单张重复 workload 与合成 fixture 不计为该采集计划完成。

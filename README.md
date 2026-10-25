@@ -47,11 +47,15 @@ be mixed. See [RAW support and limits](docs/raw-pipeline.md).
 Focus-stack reports include stage timings and bounded tile-cache statistics; see
 [performance measurements](docs/performance.md).
 
+Register and verify ordered external R8 capture manifests with
+`python scripts/prepare-r8-fixture.py`; see [capture preparation](docs/data_prep.md).
+Registration records file identity and declared provenance; RAW decoder validation is separate.
+
 Existing outputs are never overwritten. Run `xmake run photo-ops --help` for all options.
 
 ## API
 
-Version **1.4.0** keeps two photographic entry points: `enhance_sunlight(...)` and
+Version **1.5.0** keeps two photographic entry points: `enhance_sunlight(...)` and
 `stack_focus(...)`.
 
 **Breaking change:** `align_focus_stack(...)` is no longer exported. Call
