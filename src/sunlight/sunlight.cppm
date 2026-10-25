@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 module;
 #include <cstddef>
+#include <string>
 export module photo_ops.sunlight;
 import photo_ops.image;
 export import photo_ops.error;
@@ -14,12 +15,19 @@ struct sunlight_options {
 /// A heuristic result, not a calibrated probability or semantic sunlight classification.
 struct sunlight_report {
   bool applied = false;
+  std::string decision = "no_coherent_sunlight";
+  std::size_t rejected_neutral_regions{};
   std::size_t candidate_regions{};
   float selected_area_fraction{};
   float confidence{};
   float luminance_contrast_ev{};
   float chroma_deficit{};
   float maximum_chroma_gain = 1.f;
+  float selected_relative_chroma{};
+  /// Mask-weighted measured changes, after all pixel-level guards and gamut constraints.
+  double mean_relative_chroma_gain = 1;
+  double mean_luminance_change_ev = 0;
+  double changed_pixel_fraction = 0;
 };
 
 /// Owns the enhanced image and a full-resolution soft mask in [0,1].

@@ -42,7 +42,7 @@ image_statistics statistics(image_view<const linear_rgb> image) {
   return result;
 }
 
-/// Write paired JPEG previews (with the same documented exposure lift), mask TIFF and JSON.
+/// Write paired full-frame/detail JPEG previews with shared exposure, mask TIFF/JPEG and JSON.
 /// Each file is atomic and never overwritten; JSON is published last, not a directory
 /// transaction. Image output and diagnostic I/O errors are separate.
 result<void> write_sunlight_diagnostics(const std::string &directory,

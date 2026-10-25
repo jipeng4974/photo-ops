@@ -66,6 +66,53 @@ void sunlight_tests() {
   const auto neutral_pixel = neutral_result->pixels.view().at(48, 32);
   check(std::abs(neutral_pixel.r - neutral_pixel.b) < 1e-5f, "do not invent neutral warmth");
 
+  // The landscape review exposed two separate failures: intrinsic bright ice was
+  // treated as illumination, and dim RAW colors were suppressed by an absolute-C gate.
+  for (auto ice : {photo::linear_rgb{.4f, .4f, .4f}, {.38f, .40f, .42f}}) {
+    auto intrinsic = scene(ice);
+    auto result = photo::enhance_sunlight(intrinsic.view());
+    check(result.has_value() && !result->report.applied,
+          "bright near-neutral material alone is not a sunlight target");
+    unchanged(intrinsic.view(), result->pixels.view());
+  }
+  auto colored = scene({.30f, .34f, .21f});
+  auto normal_color = photo::enhance_sunlight(colored.view());
+  check(normal_color.has_value() && normal_color->report.applied,
+        "colored subject is selected");
+  auto dim = colored.clone();
+  for (std::size_t y = 0; y < dim.size().height; ++y)
+    for (auto &pixel : dim.view().row(y))
+      pixel = {pixel.r / 32, pixel.g / 32, pixel.b / 32};
+  auto dim_result = photo::enhance_sunlight(dim.view());
+  check(dim_result.has_value() && dim_result->report.applied,
+        "dim color evidence is still valid");
+  const auto relative_chroma = [](photo::linear_rgb pixel) {
+    const auto lab = photo::to_oklab(pixel);
+    return std::hypot(lab.a, lab.b) / lab.l;
+  };
+  const float gain = relative_chroma(normal_color->pixels.view().at(48, 32)) /
+                     relative_chroma(colored.view().at(48, 32));
+  const float dim_gain = relative_chroma(dim_result->pixels.view().at(48, 32)) /
+                         relative_chroma(dim.view().at(48, 32));
+  check(std::abs(gain - dim_gain) < .005f,
+        "chroma response below highlight guards must be invariant to scene exposure");
+  check(dim_gain > 1.08f, "a selected dim colored subject needs a meaningful chroma change");
+  check(dim_result->report.mean_relative_chroma_gain > 1.05,
+        "diagnostics must report actual, not only theoretical, chroma gain");
+
+  auto rich = scene({.6f, .08f, .02f});
+  auto rich_result = photo::enhance_sunlight(rich.view());
+  check(rich_result.has_value() && rich_result->report.maximum_chroma_gain < 1.05f,
+        "an already colorful subject must not receive aggressive chroma gain");
+  auto highlight = scene({.99f, .90f, .75f});
+  auto highlight_result = photo::enhance_sunlight(highlight.view());
+  check(highlight_result.has_value(), "highlight protection result");
+  const auto protected_pixel = highlight_result->pixels.view().at(48, 32);
+  const auto bright_pixel = highlight.view().at(48, 32);
+  check(protected_pixel.r == bright_pixel.r && protected_pixel.g == bright_pixel.g &&
+            protected_pixel.b == bright_pixel.b,
+        "fully protected highlights are exact identities");
+
   auto clipped = scene({1.2f, 1.1f, 1.f});
   auto protected_result = photo::enhance_sunlight(clipped.view());
   check(protected_result.has_value(), "HDR input");

@@ -28,7 +28,8 @@ EXR 与 JPEG 为可选输出，Linear DNG 留待后续。详细支持范围、RA
 
 基础层已包含 module graph、xmake、image abstractions、格式检查、expected/contracts 与 tests。
 CLI 提供 `inspect` / `convert` 和首版 `sunlight-enhance`；后者的实际算法、限制与
-诊断见 [MVP 实现记录](sunlight-enhance.md)。下文的完整 sunlight 设计仍包含未来改进，
+诊断见 [MVP 实现记录](sunlight-enhance.md)。v0.3.1 增加暗 RAW 的相对色度响应、
+近中性亮材质／弱照明证据的保守 abstention，以及真实效果测量与局部对照。下文的完整 sunlight 设计仍包含未来改进，
 `photo_ops.focus_stack` 已实现 rendered TIFF/JPEG 序列的配准、coherent selection、
 运动 fallback 与 tiled multiband fusion；尚不接入 RAW bracket。实现边界与验收见
 [focus-stack](focus-stack.md)。配准只服务本算子，暂不拆独立 registration/focus 模块。

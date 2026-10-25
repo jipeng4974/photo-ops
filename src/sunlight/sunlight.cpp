@@ -264,9 +264,19 @@ region_selection select_region(const analysis_grid &grid) {
     if (contrast < 0.3f || local_contrast < 0.04f)
       continue;
 
+    // A near-neutral bright material is weak evidence for this color-separation
+    // operator. Do not turn intrinsic white/ice/snow brightness into an exposure lift.
+    if (relative_chroma < .02f) {
+      ++selected.report.rejected_neutral_regions;
+      continue;
+    }
+
     ++selected.report.candidate_regions;
+    // Weak material color needs stronger illumination evidence. Otherwise rejecting
+    // white ice merely promotes the next weak, near-neutral bright surface.
     const float confidence = smooth_step(0.3f, 1.5f, contrast) * smooth_step(0.f, 0.04f, area) *
-                             smooth_step(0.f, 0.25f, local_contrast);
+                             smooth_step(0.f, 0.25f, local_contrast) *
+                             smooth_step(.02f, .05f, relative_chroma);
     const float score = confidence * std::sqrt(area);
     if (score <= best_score)
       continue;
@@ -275,6 +285,7 @@ region_selection select_region(const analysis_grid &grid) {
     std::ranges::fill(selected.mask, 0.f);
     for (const auto index : region)
       selected.mask[index] = 1.f;
+    selected.report.selected_relative_chroma = relative_chroma;
     selected.report.selected_area_fraction = area;
     selected.report.confidence = confidence;
     selected.report.luminance_contrast_ev = contrast;
@@ -286,11 +297,19 @@ region_selection select_region(const analysis_grid &grid) {
   }
 
   if (selected.report.confidence < 0.08f) {
+    if (selected.report.selected_area_fraction > 0)
+      selected.report.decision = "weak_illumination_evidence";
+    else if (selected.report.rejected_neutral_regions)
+      selected.report.decision = "insufficient_color_evidence";
+    selected.report.selected_area_fraction = 0;
+    selected.report.selected_relative_chroma = 0;
+    selected.report.chroma_deficit = 0;
     std::ranges::fill(selected.mask, 0.f);
     return selected;
   }
   selected.mask = blur(selected.mask, grid.size, 2);
   selected.report.applied = true;
+  selected.report.decision = "enhanced";
   return selected;
 }
 
@@ -318,13 +337,19 @@ linear_rgb enhance_pixel(linear_rgb source, float amount, float chroma_gain) {
     return source;
 
   auto perceptual = to_oklab(source);
-  const float color_evidence = smooth_step(0.005f, 0.06f, chroma(perceptual));
+  // C/L is homogeneous under exposure scaling. Absolute C incorrectly suppresses
+  // colored foliage in a dark scene-linear RAW development.
+  const float relative_chroma = chroma(perceptual) / std::max(perceptual.l, 1e-6f);
+  const float color_evidence = smooth_step(.015f, .08f, relative_chroma);
   const float headroom = 1.f - smooth_step(0.65f, 0.98f, maximum);
   const float weight = amount * headroom;
+  if (weight == 0)
+    return source;
   perceptual.a *= 1.f + chroma_gain * weight * color_evidence;
   perceptual.b *= 1.f + chroma_gain * weight * color_evidence;
-  perceptual.b += 0.002f * weight * color_evidence; // Subtle warmth, never added to neutrals.
-  perceptual.l *= std::exp2(0.06f * weight / 3.f);  // At most 0.06 EV at unit strength.
+  // Relative warmth scales with L too; it must not change just because RAW is dimmer.
+  perceptual.b += .002f * perceptual.l * weight * color_evidence;
+  perceptual.l *= std::exp2(.16f * weight / 3.f); // At most 0.16 EV at unit strength.
   const auto candidate = from_oklab(perceptual);
 
   // Reduce the whole proposed change to fit the output gamut instead of clipping channels.
@@ -353,14 +378,18 @@ result<sunlight_result> enhance_sunlight(image_view<const linear_rgb> source,
   if (!grid)
     return std::unexpected(grid.error());
   auto selection = select_region(*grid);
-  if (options.strength == 0)
+  if (options.strength == 0) {
     selection.report.applied = false;
+    selection.report.decision = "strength_zero";
+  }
 
   sunlight_result output{image<linear_rgb>(source.size()), image<gray>(source.size()),
                          selection.report};
-  const float chroma_gain = 0.18f * selection.report.chroma_deficit;
+  const float chroma_gain = .35f * std::sqrt(selection.report.chroma_deficit);
   output.report.maximum_chroma_gain =
       output.report.applied ? 1.f + options.strength * chroma_gain : 1.f;
+  double mask_sum = 0, chroma_change = 0, luminance_change = 0;
+  std::size_t changed_pixels = 0;
   for (std::size_t y = 0; y < source.size().height; ++y) {
     auto pixels = output.pixels.view().row(y);
     auto mask = output.mask.view().row(y);
@@ -374,8 +403,35 @@ result<sunlight_result> enhance_sunlight(image_view<const linear_rgb> source,
       }
       mask[x].value = weight;
       pixels[x] = enhance_pixel(original, weight * options.strength, chroma_gain);
+      if (weight > 0) {
+        const auto before = to_oklab(original), after = to_oklab(pixels[x]);
+        const float relative_before = chroma(before) / std::max(before.l, 1e-6f);
+        const float relative_after = chroma(after) / std::max(after.l, 1e-6f);
+        mask_sum += weight;
+        if (relative_before > 1e-5f)
+          chroma_change += weight * (relative_after / relative_before - 1);
+        const float y0 = luminance(original), y1 = luminance(pixels[x]);
+        if (y0 > 1e-8f && y1 > 1e-8f)
+          luminance_change += weight * std::log2(y1 / y0);
+        const float difference =
+            std::max({std::abs(pixels[x].r - original.r), std::abs(pixels[x].g - original.g),
+                      std::abs(pixels[x].b - original.b)});
+        changed_pixels +=
+            difference > 1e-6f * std::max({original.r, original.g, original.b, .001f});
+      }
     }
   }
+  if (mask_sum > 0) {
+    output.report.mean_relative_chroma_gain = 1 + chroma_change / mask_sum;
+    output.report.mean_luminance_change_ev = luminance_change / mask_sum;
+  }
+  if (output.report.applied && changed_pixels == 0) {
+    output.report.applied = false;
+    output.report.decision = "protected_pixels";
+    output.report.maximum_chroma_gain = 1;
+  }
+  output.report.changed_pixel_fraction =
+      double(changed_pixels) / (source.size().width * source.size().height);
   return output;
 }
 } // namespace photo_ops

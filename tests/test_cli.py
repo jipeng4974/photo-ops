@@ -53,7 +53,11 @@ class CommandLine(unittest.TestCase):
             self.assertEqual(result.returncode, 0, result.stderr)
             report = json.loads((root/"diagnostics/report.json").read_text())
             self.assertTrue(report["applied"])
-            for name in ["before.jpg", "after.jpg", "mask.tif"]:
+            self.assertGreater(report["mean_relative_chroma_gain"], 1)
+            self.assertGreater(report["mean_luminance_change_ev"], 0)
+            self.assertEqual(report["decision"], "enhanced")
+            for name in ["before.jpg", "after.jpg", "mask.tif", "mask.jpg",
+                         "detail-before.jpg", "detail-after.jpg"]:
                 self.assertGreater((root/"diagnostics"/name).stat().st_size, 0)
 
             existing = self.run_cli("sunlight-enhance", source, "-o", root/"other.tif",
