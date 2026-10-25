@@ -17,11 +17,6 @@ struct focus_stack_alignment {
   bool identity = true;
 };
 
-/// Internal registration for focus stacking; views are linear-sRGB luminance proxies.
-/// Rejects insufficient evidence and excessive deformation instead of guessing identity.
-result<focus_stack_alignment> align_focus_stack(image_view<const gray> reference,
-                                                image_view<const gray> source);
-
 struct focus_stack_options {
   std::size_t memory_budget_mib = 2048;
   std::string scratch_directory; // Empty uses the system temporary directory.
@@ -56,3 +51,12 @@ result<focus_stack_report> stack_focus(std::span<const std::string> inputs,
                                        const std::string &output,
                                        const focus_stack_options &options = {});
 } // namespace photo_ops
+
+// Shared by this module's implementation units; not exported to consumers.
+namespace photo_ops::detail {
+/// Internal registration for focus stacking; views are linear-sRGB luminance proxies.
+/// Rejects insufficient evidence and excessive deformation instead of guessing identity.
+result<focus_stack_alignment> align_focus_stack(image_view<const gray> reference,
+                                                image_view<const gray> source);
+
+} // namespace photo_ops::detail

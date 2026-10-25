@@ -699,7 +699,7 @@ result<focus_stack_report> stack_focus(std::span<const std::string> inputs,
     if (i == reference) {
       reference_proxy = std::move(small);
     } else if (!options.already_aligned) {
-      auto alignment = align_focus_stack(reference_proxy.view(), small.view());
+      auto alignment = detail::align_focus_stack(reference_proxy.view(), small.view());
       if (!alignment)
         return std::unexpected(error{alignment.error().code, alignment.error().operation,
                                      alignment.error().message, inputs[i]});

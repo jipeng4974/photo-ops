@@ -43,6 +43,14 @@ xmake run photo-ops focus-stack near.tif far.tif -o stacked.tif
 supported. Existing outputs are never overwritten. Run `xmake run photo-ops --help`
 for all options.
 
+## API
+
+Version **1.0.0** keeps two photographic entry points: `enhance_sunlight(...)` and
+`stack_focus(...)`.
+
+**Breaking change:** `align_focus_stack(...)` is no longer exported. Call
+`stack_focus(...)` and inspect the returned report's `frames[i].alignment` instead.
+
 ## License
 
 Intended license direction: **GPL-3.0-or-later**.

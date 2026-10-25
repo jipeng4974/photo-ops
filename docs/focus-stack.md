@@ -2,7 +2,9 @@
 
 v0.3 实现单一 named module **`photo_ops.focus_stack`**：配准仅服务景深合成，
 保留为该模块中的 adapter，不拆 `photo_ops.registration` / `photo_ops.focus`。
-public 入口为 `stack_focus(paths, output, options)`，另有 proxy similarity 的数值接口。
+public 摄影入口为 `stack_focus(paths, output, options)`；similarity 数值通过
+report 检查，registration helper 不 export。v1.0 移除原先公开的
+`align_focus_stack`，调用方迁移到 `stack_focus` 的返回 report。
 
 ## 当前可运行范围
 

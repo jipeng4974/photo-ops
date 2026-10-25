@@ -55,6 +55,28 @@ The initial operators are:
 - `focus-stack` — depth-of-field stacking with progressively stronger registration, spatially regularized focus selection, and multi-scale fusion.
 - `sunlight-enhance` — illumination-aware enhancement of coherent sunlit regions when luminance contrast is strong but chromatic separation is weak.
 
+## Photographic API surface
+
+Keep the user-facing photographic API centered on two operations:
+
+```cpp
+enhance_sunlight(...)
+stack_focus(...)
+```
+
+Algorithms may become sophisticated internally without adding public stages for
+users to assemble. Registration, region scoring, mask refinement and fusion stay
+implementation details. Return inspectable reports and provide focused options
+through the existing operations; do not grow options into catalogs of algorithm
+switches without an observed need.
+
+Do not export internal helpers solely to make them callable from tests. Test the
+photographic behavior through the operation and its diagnostics. Shared image,
+color and I/O infrastructure can remain separate engineering interfaces; it does
+not justify a generic editor, pipeline builder, or parallel set of photo APIs.
+A new photographic operation needs a concrete recurring use case and an explicit
+scope decision, not merely an implementation technique that could be exposed.
+
 ## Canonical programming stack
 
 This is a **C++26-first, module-native** codebase.

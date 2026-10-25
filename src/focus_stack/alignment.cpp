@@ -10,7 +10,7 @@ module;
 module photo_ops.focus_stack;
 import photo_ops.image;
 
-namespace photo_ops {
+namespace photo_ops::detail {
 namespace {
 cv::Mat feature_image(image_view<const gray> source) {
   float lo = source.at(0, 0).value, hi = lo;
@@ -118,4 +118,4 @@ result<focus_stack_alignment> align_focus_stack(image_view<const gray> reference
     return fail(error_code::decode, "focus registration", e.what());
   }
 }
-} // namespace photo_ops
+} // namespace photo_ops::detail

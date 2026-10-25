@@ -79,17 +79,7 @@ void registration_tests() {
       reference.view().at(x, y).value = scene(x, y);
       source.view().at(x, y).value = scene(a * x - b * y + 3, b * x + a * y - 2);
     }
-  const auto transform = take(p::align_focus_stack(reference.view(), source.view()));
-  check(std::abs(transform.a - a) < .003 && std::abs(transform.b - b) < .003,
-        "similarity must recover rotation and breathing");
-  check(std::abs(transform.tx - 3) < .5 && std::abs(transform.ty + 2) < .5,
-        "similarity must map source to reference, not its inverse");
-  check(transform.inliers >= 8 && transform.residual_px < 1,
-        "similarity consensus and residual");
-  const auto again = take(p::align_focus_stack(reference.view(), source.view()));
-  check(transform.a == again.a && transform.tx == again.tx,
-        "registration must be deterministic");
-  // Exercise the full proxy-center conjugation too, not just the adapter coordinates.
+  // Verify registration through the photographic entry point and its diagnostics.
   workspace temp;
   p::image<p::linear_rgb> ref_rgb({400, 320}), src_rgb({400, 320});
   for (std::size_t y = 0; y < 320; ++y)
@@ -114,14 +104,29 @@ void registration_tests() {
   check(stacked.proxy_step == 2 && std::abs(stacked.frames[1].alignment.tx - 3) < .8 &&
             std::abs(stacked.frames[1].alignment.ty + 2) < .8,
         "proxy alignment must be conjugated into full-resolution pixel centers");
-  p::image<p::gray> flat({64, 64}), other({64, 64});
+  const auto &transform = stacked.frames[1].alignment;
+  check(std::abs(transform.a - a) < .003 && std::abs(transform.b - b) < .003,
+        "stack diagnostics must recover rotation and breathing");
+  check(transform.inliers >= 8 && transform.residual_px < 2,
+        "stack diagnostics must expose similarity consensus and full-res residual");
+  const auto again =
+      take(p::stack_focus(sequence, (temp.path / "again.tif").string(), options));
+  check(transform.a == again.frames[1].alignment.a &&
+            transform.tx == again.frames[1].alignment.tx,
+        "stack registration must be deterministic");
+
+  p::image<p::linear_rgb> flat({64, 64}), other({64, 64});
   for (std::size_t y = 0; y < 64; ++y)
     for (auto &pixel : other.view().row(y))
-      pixel.value = .2;
-  check(!p::align_focus_stack(flat.view(), other.view()),
-        "no blind identity on featureless mismatch");
-  check(take(p::align_focus_stack(flat.view(), flat.view())).identity,
-        "identical flat proxy is identity");
+      pixel = {.2f, .2f, .2f};
+  const std::vector<std::string> featureless{(temp.path / "flat.tif").string(),
+                                             (temp.path / "other.tif").string()};
+  done(p::write_image(featureless[0], flat.view()));
+  done(p::write_image(featureless[1], other.view()));
+  const auto failed = p::stack_focus(featureless, (temp.path / "failed.tif").string(), options);
+  check(!failed && failed.error().operation == "focus registration",
+        "stack must reject featureless mismatch instead of guessing identity");
+  check(!fs::exists(temp.path / "failed.tif"), "failed registration cannot publish output");
 }
 
 void fusion_tests() {
@@ -225,6 +230,8 @@ void memory_and_identity_tests() {
                                        (temp.path / "two.tif").string(), options));
   const auto four = take(p::stack_focus(std::vector<std::string>(4, source),
                                         (temp.path / "four.tif").string(), options));
+  for (const auto &frame : four.frames)
+    check(frame.alignment.identity, "identical flat inputs use identity registration");
   check(two.estimated_peak_bytes == four.estimated_peak_bytes &&
             four.scratch_bytes > two.scratch_bytes,
         "frame count must grow scratch, not full-res resident RGB");

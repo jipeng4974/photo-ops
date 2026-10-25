@@ -1,5 +1,21 @@
 # Design: Opinionated Computational-Photography Operators
 
+## 摄影 API 边界
+
+面向使用者的摄影操作保持两个入口：
+
+```cpp
+enhance_sunlight(...)
+stack_focus(...)
+```
+
+内部配准、区域评分、mask refinement、多尺度融合可以持续演进，不把各阶段变成
+需要使用者拼装的 API。必要的 controls、失败原因和可检查结果放在现有 options /
+report 中；也不把 options 堆成算法开关清单。image / color / I/O 的工程接口继续按
+职责存在，但不据此建一个通用 editor、pipeline builder 或另一套摄影调用方式。
+新增摄影 operator 需要明确的实际用例与范围决定；不因为某个算法可以单独调用就
+export 它，也不只为了测试而扩大公开边界。现有两个函数不必强行统一成抽象框架。
+
 ## v0.2 架构修正（2026-10-25）
 
 进入 `photo_ops.focus_stack` 前，以以下契约为准：

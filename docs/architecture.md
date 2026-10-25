@@ -41,6 +41,8 @@ module interfaces 可以跨 target 使用。第三方 headers 只出现在 imple
 `photo_ops.sunlight` 已实现 classical MVP，见 [算法与诊断](sunlight-enhance.md)。
 `photo_ops.focus_stack` 已实现首版 rendered-image 合成；registration 与 fusion
 属于同一个模块的不同 implementation files，不预先建两个 reusable 模块。
+`align_focus_stack` 是不 export 的模块内 helper；外部通过 `stack_focus` 及其
+report 验证几何结果，不为了单测把配准阶段发布成另一个摄影 API。
 入口编排 input preflight、spool、proxy、配准、全局选择、tiled fusion 与 streaming
 输出；解码、颜色转换和最终编码继续通过 `photo_ops.io` 边界，OpenCV 仅在私有
 alignment adapter 中使用。图像算法内部仍使用项目类型和借用 view。
