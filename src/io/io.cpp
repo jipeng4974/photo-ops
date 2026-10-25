@@ -16,10 +16,13 @@ module;
 #include <cmath>
 #include <cstdint>
 #include <expected>
+#include <filesystem>
 #include <fstream>
+#include <functional>
 #include <iterator>
 #include <limits>
 #include <memory>
+#include <span>
 #include <string>
 #include <vector>
 module photo_ops.io;
@@ -262,7 +265,8 @@ float encode(float v) {
   return std::clamp(linear_to_srgb(v), 0.f, 1.f);
 }
 
-result<void> write_tiff(const std::string &path, image_view<const linear_rgb> pixels) {
+result<void> write_tiff_stream(const std::string &path, extent size,
+                               const image_row_reader &read_row) {
   tiff file(TIFFOpen(path.c_str(), "w"), TIFFClose);
   if (!file)
     return fail(error_code::io, "image I/O", "cannot create TIFF: " + path);
@@ -272,8 +276,8 @@ result<void> write_tiff(const std::string &path, image_view<const linear_rgb> pi
   const auto set = [&](auto tag, auto... values) {
     return TIFFSetField(file.get(), tag, values...) != 0;
   };
-  if (!(set(TIFFTAG_IMAGEWIDTH, static_cast<std::uint32_t>(pixels.size().width)) &&
-        set(TIFFTAG_IMAGELENGTH, static_cast<std::uint32_t>(pixels.size().height)) &&
+  if (!(set(TIFFTAG_IMAGEWIDTH, static_cast<std::uint32_t>(size.width)) &&
+        set(TIFFTAG_IMAGELENGTH, static_cast<std::uint32_t>(size.height)) &&
         set(TIFFTAG_BITSPERSAMPLE, 16) && set(TIFFTAG_SAMPLESPERPIXEL, 3) &&
         set(TIFFTAG_PHOTOMETRIC, PHOTOMETRIC_RGB) &&
         set(TIFFTAG_PLANARCONFIG, PLANARCONFIG_CONTIG) &&
@@ -284,10 +288,15 @@ result<void> write_tiff(const std::string &path, image_view<const linear_rgb> pi
         set(TIFFTAG_ROWSPERSTRIP, TIFFDefaultStripSize(file.get(), 0)) &&
         set(TIFFTAG_ICCPROFILE, static_cast<std::uint32_t>(icc->size()), icc->data())))
     return fail(error_code::encode, "configure TIFF", "cannot set output tags");
-  std::vector<std::uint16_t> row(pixels.size().width * 3);
-  for (std::size_t y = 0; y < pixels.size().height; ++y) {
-    for (std::size_t x = 0; x < pixels.size().width; ++x) {
-      const auto p = pixels.at(x, y);
+  std::vector<std::uint16_t> row(size.width * 3);
+  std::vector<linear_rgb> input(size.width);
+  for (std::size_t y = 0; y < size.height; ++y) {
+    if (auto read = read_row(y, input); !read)
+      return read;
+    for (std::size_t x = 0; x < size.width; ++x) {
+      const auto p = input[x];
+      if (!std::isfinite(p.r) || !std::isfinite(p.g) || !std::isfinite(p.b))
+        return fail(error_code::invalid_argument, "write TIFF", "non-finite RGB", path);
       row[3 * x] = std::lround(65535.f * encode(p.r));
       row[3 * x + 1] = std::lround(65535.f * encode(p.g));
       row[3 * x + 2] = std::lround(65535.f * encode(p.b));
@@ -298,6 +307,13 @@ result<void> write_tiff(const std::string &path, image_view<const linear_rgb> pi
   if (!TIFFWriteDirectory(file.get()) || !TIFFFlush(file.get()))
     return fail(error_code::io, "image I/O", "cannot finalize TIFF");
   return {};
+}
+
+result<void> write_tiff(const std::string &path, image_view<const linear_rgb> pixels) {
+  return write_tiff_stream(path, pixels.size(), [&](std::size_t y, std::span<linear_rgb> row) {
+    std::ranges::copy(pixels.row(y), row.begin());
+    return result<void>{};
+  });
 }
 
 result<void> write_jpeg(const std::string &path, image_view<const linear_rgb> pixels,
@@ -370,6 +386,59 @@ result<decoded_image> read_image(const std::string &path, bool half_size_raw) {
     failure.path = path;
     return failure;
   });
+}
+
+result<extent> rendered_image_size(const std::string &path) {
+  const auto ext = extension(path);
+  if (ext == ".tif" || ext == ".tiff") {
+    tiff file(TIFFOpen(path.c_str(), "r"), TIFFClose);
+    std::uint32_t width = 0, height = 0;
+    if (!file || !TIFFGetField(file.get(), TIFFTAG_IMAGEWIDTH, &width) ||
+        !TIFFGetField(file.get(), TIFFTAG_IMAGELENGTH, &height) || !width || !height)
+      return fail(error_code::decode, "inspect TIFF", "invalid TIFF dimensions", path);
+    return extent{width, height};
+  }
+  if (ext == ".jpg" || ext == ".jpeg") {
+    std::error_code ec;
+    const auto size = std::filesystem::file_size(path, ec);
+    // Bound header input too; do not read an arbitrarily large file before budget preflight.
+    if (ec || size > 256ULL * 1024 * 1024)
+      return fail(error_code::decode, "inspect JPEG", "missing or oversized JPEG (>256 MiB)",
+                  path);
+    std::ifstream file(path, std::ios::binary);
+    std::vector<unsigned char> bytes{std::istreambuf_iterator<char>(file), {}};
+    jpeg decoder(tj3Init(TJINIT_DECOMPRESS));
+    if (!decoder || tj3DecompressHeader(decoder.get(), bytes.data(), bytes.size()) < 0)
+      return fail(error_code::decode, "inspect JPEG", "invalid JPEG header", path);
+    const int width = tj3Get(decoder.get(), TJPARAM_JPEGWIDTH);
+    const int height = tj3Get(decoder.get(), TJPARAM_JPEGHEIGHT);
+    if (width <= 0 || height <= 0)
+      return fail(error_code::decode, "inspect JPEG", "invalid JPEG dimensions", path);
+    return extent{static_cast<std::size_t>(width), static_cast<std::size_t>(height)};
+  }
+  return fail(error_code::unsupported_format, "inspect rendered image",
+              "focus-stack requires consistently developed RGB TIFF/JPEG; RAW float/context "
+              "unavailable",
+              path);
+}
+
+result<void> write_tiff_rows(const std::string &path, extent dimensions,
+                             const image_row_reader &read_row) {
+  if (!dimensions.valid() || !dimensions.width ||
+      dimensions.width > std::numeric_limits<int>::max() ||
+      dimensions.height > std::numeric_limits<int>::max() || !read_row)
+    return fail(error_code::invalid_argument, "write TIFF", "invalid dimensions or row reader",
+                path);
+  auto transaction = atomic_output::create(path);
+  if (!transaction)
+    return std::unexpected(transaction.error());
+  auto written = write_tiff_stream(transaction->temporary_path(), dimensions, read_row);
+  if (!written)
+    return written.transform_error([&](error e) {
+      e.path = path;
+      return e;
+    });
+  return transaction->commit();
 }
 
 bool exr_available() noexcept {

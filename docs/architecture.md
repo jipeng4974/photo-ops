@@ -4,8 +4,14 @@
 
 ```mermaid
 graph TD
-    CLI[CLI inspect / convert / sunlight-enhance] --> IO[photo_ops.io]
+    CLI[CLI inspect / convert / sunlight-enhance / focus-stack] --> IO[photo_ops.io]
     CLI --> DIAG[photo_ops.diagnostics]
+    CLI --> FOCUS[photo_ops.focus_stack]
+    FOCUS --> IO
+    FOCUS --> OUT
+    FOCUS --> IMAGE
+    FOCUS --> COLOR
+    FOCUS --> ERR
     IO --> OUT[photo_ops.output]
     OUT --> ERR
     DIAG --> OUT
@@ -33,10 +39,14 @@ module interfaces 可以跨 target 使用。第三方 headers 只出现在 imple
 或 header units；xmake 的自动 std module 构建也显式关闭。
 
 `photo_ops.sunlight` 已实现 classical MVP，见 [算法与诊断](sunlight-enhance.md)。
-v0.2 前置契约见 [RAW / raw_sequence_context](raw-pipeline.md) 和
-[focus-stack 内存预算](focus-stack.md)。它们仍是待实现设计，不把当前单帧 sRGB
-decode 当作 sequence-safe wide-gamut 开发。后续按实际算法加入 `photo_ops.registration`、`photo_ops.focus`，不创建空模块。focus 的依赖方向为
-`focus → registration / pyramid / color / image`，文件解码与输出留给调用层。
+`photo_ops.focus_stack` 已实现首版 rendered-image 合成；registration 与 fusion
+属于同一个模块的不同 implementation files，不预先建两个 reusable 模块。
+入口编排 input preflight、spool、proxy、配准、全局选择、tiled fusion 与 streaming
+输出；解码、颜色转换和最终编码继续通过 `photo_ops.io` 边界，OpenCV 仅在私有
+alignment adapter 中使用。图像算法内部仍使用项目类型和借用 view。
+[RAW / raw_sequence_context](raw-pipeline.md) 仍是 RAW bracket 的前置门槛；
+当前 CLI 对其明确报错，不把单帧 sRGB decoder 当作 sequence-safe 开发。
+详见 [focus-stack 实现与预算](focus-stack.md)。
 
 ## 目录按职责组织
 
@@ -47,10 +57,11 @@ src/
   color/color.cppm
   io/io.cppm, io.cpp, raw.cppm, raw.cpp, output.cppm, output.cpp
   sunlight/sunlight.cppm, sunlight.cpp
+  focus_stack/focus_stack.cppm, alignment.cpp, focus_stack.cpp
   diagnostics/diagnostics.cppm, sunlight.cpp
   cli/main.cpp
 tests/
-  foundation.cpp, sunlight.cpp
+  foundation.cpp, sunlight.cpp, focus_stack.cpp
   test_configure.py, test_cli.py, test_result_usage.py
   data/*manifest.json, *provenance.json
 ```
@@ -102,7 +113,9 @@ TIFF 的 tiled、planar、alpha、浮点与其他 orientation 暂不支持。
 当前 LibRaw 16-bit 中间结果可能已裁掉高光或负值，float32 容器不能恢复这些信息。
 TIFF/JPEG 的逆 transfer/ICC 转换只得到线性 RGB，不能撤销相机 tone curve、
 局部处理、降噪与锐化。`decoded_image.origin` 保留这一区别，不能把 JPEG
-当作真正 scene-linear RAW。真正高动态范围 RAW float 开发是后续明确改进项。
+当作真正 scene-linear RAW。真正高动态范围 RAW float 开发是后续明确改进项；focus-stack 当前只接受
+rendered TIFF/JPEG，输出为 streaming 16-bit TIFF。`rendered_image_size` 为 decode
+预算预检读取尺寸，JPEG header 路径最多接收 256 MiB 文件。
 
 输出由 `photo_ops.output` 在目标同目录 `mkstemp`，encoder 完成并关闭后 fsync，
 以 Linux `renameat2(RENAME_NOREPLACE)` 发布。最终路径只在完整编码后出现；所有
@@ -115,7 +128,7 @@ JSON report 同样 atomic，最后发布为 diagnostics 完成标记；多个文
 
 输出 writer 拒绝 NaN/Inf；TIFF/JPEG 默认不增加曝光、不自动美化。
 diagnostics 统计非有限值、越界像素、channel range 与平均 luminance。
-CLI 防止覆盖已有输出，提供 `inspect` / `convert` / `sunlight-enhance`；focus-stack 尚未实现。
+CLI 防止覆盖已有输出，提供 `inspect` / `convert` / `sunlight-enhance` / `focus-stack`。
 可恢复错误使用 `std::expected`，调用违约使用 C++26 contracts，详见 [C++ 风格约定](cpp-style.md)。
 
 ## 验证与下一阶段

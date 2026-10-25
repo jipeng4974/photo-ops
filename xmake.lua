@@ -1,5 +1,5 @@
 set_project("photo-ops")
-set_version("0.2.1")
+set_version("0.3.0")
 set_xmakever("3.1.2")
 set_languages("c++26")
 add_cxxflags("-fcontracts", "-fcontract-evaluation-semantic=quick_enforce")
@@ -31,6 +31,7 @@ add_requires("pkgconfig::libraw", {alias = "raw", system = true})
 add_requires("pkgconfig::libtiff-4", {alias = "tiff", system = true})
 add_requires("pkgconfig::libturbojpeg >=3.2.0", {alias = "jpeg", system = true})
 add_requires("pkgconfig::lcms2", {alias = "lcms", system = true})
+add_requires("pkgconfig::opencv5", {alias = "opencv", system = true})
 if has_config("exr") then
     add_requires("pkgconfig::OpenEXR", {alias = "exr", system = true})
 end
@@ -38,8 +39,9 @@ end
 target("photo_ops")
     set_kind("static")
     add_files("src/**.cppm", {public = true})
-    add_files("src/io/*.cpp", "src/sunlight/*.cpp", "src/diagnostics/*.cpp")
-    add_packages("raw", "tiff", "jpeg", "lcms")
+    add_files("src/io/*.cpp", "src/sunlight/*.cpp", "src/diagnostics/*.cpp",
+              "src/focus_stack/*.cpp")
+    add_packages("raw", "tiff", "jpeg", "lcms", "opencv")
     if has_config("exr") then
         add_packages("exr")
         add_defines("PHOTO_OPS_EXR")
@@ -48,6 +50,10 @@ target("photo_ops")
         os.vrunv("python", {"scripts/format.py", "--check"})
     end)
     on_config(function (target)
+        -- The distro .pc exports every OpenCV component, including GUI/VTK backends.
+        -- This adapter needs only features, similarity geometry and core arrays.
+        target:pkg("opencv"):set("links", {"opencv_features", "opencv_geometry", "opencv_imgproc",
+                                           "opencv_flann", "opencv_core"})
         local compiler = target:tool("cxx")
         local version = os.iorunv(compiler, {"-dumpfullversion"}):trim()
         assert(version:startswith("16.2."),

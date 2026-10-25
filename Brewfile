@@ -10,3 +10,5 @@ brew "jpeg-turbo"
 brew "little-cms2"
 # Optional output backend, enabled with scripts/configure.sh --exr=y.
 brew "openexr"
+
+brew "opencv" # Optional package path; requires OpenCV 5 pkg-config metadata.

@@ -1,6 +1,8 @@
 # v0.2 RAW 工作色彩与序列契约
 
-本文是进入 registration / focus 前的设计约束。**wide-gamut float 开发与
+本文约束 `photo_ops.focus_stack` 的 RAW bracket 接入。
+目前先实现已统一开发的 rendered TIFF/JPEG 合成，不经过 RAW decoder；这不放宽
+以下 RAW float/context 门槛。**wide-gamut float 开发与
 `raw_sequence_context` 尚未实现**；当前 `decode_raw` 仍为单帧 LibRaw 16-bit
 linear-sRGB 兼容路径，不应作为 focus bracket 的开发接口。
 
@@ -33,9 +35,10 @@ Rec.2020 primaries / D65 是第一条 wide-gamut working 路线，不是 PQ、HL
 Rec.709 luminance / sRGB↔OKLab 函数。迁移时使用 project-owned `rgb_f32`
 存储加必需的 `color_encoding`（primaries、white point、transfer、scene/rendered
 来源、normalization provenance），组成 `working_image` / 对应借用 view。
-`image<Pixel>` 继续只负责布局与所有权。registration/focus 公共接口必须携带
+`image<Pixel>` 继续只负责布局与所有权。future wide-gamut focus_stack 公共接口必须携带
 这个 encoding 或约束到明确的 working 类型；不允许裸 RGB 猜色彩空间。
-这些是设计中的类型名，本轮不添加空模块或未工作的 API。
+这些是设计中的类型名；当前 rendered focus_stack 接口显式限制为已有
+linear-sRGB/D65 类型，不能塞入 Rec.2020 样本。
 
 - 亮度使用该 working RGB→XYZ 矩阵的 Y 行，不能复用 Rec.709 系数。
 - OKLab 经显式 working→XYZ D65→OKLab 转换；不得先裁到 sRGB。

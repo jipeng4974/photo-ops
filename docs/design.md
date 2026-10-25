@@ -2,11 +2,12 @@
 
 ## v0.2 架构修正（2026-10-25）
 
-进入 `photo_ops.registration` / `photo_ops.focus` 前，以以下契约为准：
+进入 `photo_ops.focus_stack` 前，以以下契约为准：
 
 - [RAW working pipeline 与 raw_sequence_context](raw-pipeline.md)：明确 camera-linear
   float → XYZ → linear Rec.2020/D65，保留负值／高光；先冻结整组 WB、black 与
-  normalization，禁止逐帧自动开发。新路线仍待实现，不把现有 sRGB 视为永久 ABI。
+  normalization，禁止逐帧自动开发。RAW 新路线仍待实现，不把现有 sRGB 视为永久 ABI。
+  rendered-only 的 focus_stack 已可独立验证核心；该例外不放宽 RAW bracket 的门槛。
 - [focus-stack 内存预算](focus-stack.md)：registration proxy + sequential decode/spool
   + tiled full-res fusion；单帧 decoder 峰值、halo、maps、scratch 与输出都计入预算。
 - 输出现已使用同目录 temporary + atomic no-replace publish；每个文件独立完成，
@@ -28,7 +29,9 @@ EXR 与 JPEG 为可选输出，Linear DNG 留待后续。详细支持范围、RA
 基础层已包含 module graph、xmake、image abstractions、格式检查、expected/contracts 与 tests。
 CLI 提供 `inspect` / `convert` 和首版 `sunlight-enhance`；后者的实际算法、限制与
 诊断见 [MVP 实现记录](sunlight-enhance.md)。下文的完整 sunlight 设计仍包含未来改进，
-focus-stack 尚未实现。
+`photo_ops.focus_stack` 已实现 rendered TIFF/JPEG 序列的配准、coherent selection、
+运动 fallback 与 tiled multiband fusion；尚不接入 RAW bracket。实现边界与验收见
+[focus-stack](focus-stack.md)。配准只服务本算子，暂不拆独立 registration/focus 模块。
 
 `photo-ops` is a personal, programmatic landscape-photography toolkit.
 

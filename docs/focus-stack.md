@@ -1,8 +1,96 @@
-# focus-stack：有内存预算的实现设计
+# focus-stack：实现、边界与内存预算
 
-本文件定义 v0.2 后 `photo_ops.registration` / `photo_ops.focus` 的实现边界，
-不是已实现功能。先满足 [RAW 与序列契约](raw-pipeline.md) 的颜色／一致性门槛，
-再接 bracket；不为规划先创建空模块。
+v0.3 实现单一 named module **`photo_ops.focus_stack`**：配准仅服务景深合成，
+保留为该模块中的 adapter，不拆 `photo_ops.registration` / `photo_ops.focus`。
+public 入口为 `stack_focus(paths, output, options)`，另有 proxy similarity 的数值接口。
+
+## 当前可运行范围
+
+```bash
+xmake run photo-ops focus-stack near.tif middle.tif far.tif -o stacked.tif \
+  --memory-budget-mib 2048 --scratch-directory /tmp \
+  --diagnostics build/focus-diagnostics
+```
+
+输入为**同尺寸、已一致开发**的 RGB TIFF/JPEG（沿用现有 reader 的布局与 ICC 限制），
+输出为流式 16-bit、sRGB ICC、Deflate TIFF。`--reference INDEX` 为从 0 开始的输入
+索引，默认 `N/2`；顺序由调用者指定，不根据文件名重新排序。已经配准的序列可以
+显式 `--aligned` 跳过几何估计；默认不会在配准失败时悄悄假设 identity。
+
+RAW 的 wide-gamut float / `raw_sequence_context` 仍未实现，**CR3 明确拒绝**，
+不调用旧的逐帧 camera-WB / 16-bit decoder 来合成。[RAW 契约](raw-pipeline.md)
+继续作为 RAW bracket 的接入门槛。首版 rendered 核心依赖现有明确类型
+`linear_rgb`（linear-sRGB/D65），不接受或误标 Rec.2020；也不匹配逐帧曝光/WB。
+用户需在外部开发阶段统一这些参数，rendered 像素无法还原 RAW 一致性证据。
+streaming JPEG/EXR 输出留待后续，避免为输出重新分配完整 RGB 图。
+
+## 已实现的处理过程
+
+1. 先读 header 尺寸，检查 2..256 帧、同尺寸、32..65536 每边、最多 200 MP；
+   输入文件上限 1 GiB，JPEG header 路径额外限定 256 MiB。预算和 scratch 预检后
+   顺序解码，一次仅持有一张全尺寸 float32 RGB。输入在运行中需保持不变。
+2. 写入 private run directory 的原生 RGB spool，同时生成 box-average RGB/Y
+   proxies；本轮不做跨运行 cache/reuse，不依赖未完成缓存的 fingerprint。
+3. OpenCV 5 SIFT（2000 features）、0.75 ratio + mutual matches、固定 RNG 的
+   RANSAC similarity。至少 8 个 inliers、35% consensus，proxy RMS <=1.5 px，
+   scale 在 `[0.9,1.1]`、rotation <=0.1 rad、translation norm <= proxy 长边的 25%。
+   reference/完全相同 proxy 使用 identity；其他证据不足的帧整组失败并报告路径。
+   这些是 conservative MVP 限制，homography/local flow 未实现。
+4. 相似变换 source→reference 通过 box-proxy 的像素中心共轭到 full-res；alignment
+   report 的 translation/residual 均为 full-res pixels。最后不足一个 box 的边缘块
+   只是近似同一 sampling center；不把这种边缘证据当作高精度标定。
+5. 在 reference proxy 全域计算平滑的 Laplacian/gradient energy，按帧写 score spool；
+   三次同步 Potts regularization 后形成 coherent labels，confidence 是 best/second
+   score 的相对差，不是校准概率。没有 N×P score volume 或逐像素 argmax 最终图。
+6. 用低频 **RGB** 差异检测候选 motion（`abs(delta_channel) > 0.06 + 0.2*abs(ref)`），
+   膨胀两个 proxy pixels；整片用 reference，包括等亮度但不同颜色的运动。
+   这是保守启发式，不能识别所有水面／叶片运动，也可能把开发差异当作 motion。
+7. 全尺寸 tile+halo 从 source spool 读取有界反投影 ROI。每帧计算 full-res focus
+   evidence、平滑权重，并使用 coarse label/confidence 作软 prior（最低仍为 0.2）。
+   先顺序扫描得到 base weight 总和，再重读并归一化每个 source 的 mask。之后才建
+   4-level Gaussian weights / Laplacian RGB，逐帧累加、逐层归一并重建。
+8. halo=64、tile origin 对齐 8，真实图像边缘才 replicate，tile 只提交 interior。
+   motion 区域最终精确还原 reference；未被所有 source 覆盖的边缘也使用 reference，
+   保留 reference 的完整尺寸，**首版不自动 crop**。因此边缘可能不具备全景深。
+9. 融合结果先落 disk spool，再用 `write_tiff_rows` 一行一行编码，atomic no-replace
+   发布。正常成功／失败清理本次 scratch；SIGKILL 后 private run directory 可残留。
+
+同目录 diagnostics 提供 proxy-resolution `source-map.tif`、`confidence.tif`、
+`motion.tif` 及最后发布的 `report.json`。source-map 为 regularized coarse label，
+灰度线性值 `index/(N-1)`，**不是 full-res blend 的逐像素唯一来源**。map 使用带
+sRGB ICC 的可视 TIFF，读取 scalar 时需逆 transfer。JSON 包括 reference、变换、
+match/inlier/residual、source 选择比例、motion/low-confidence 比例及预算估计。
+文件独立 atomic；多文件诊断与最终照片不是整体事务。
+
+## 当前预算模型与限制
+
+`--memory-budget-mib` 默认 2048、最少 512；`--tile-size` 默认 256（允许 32..4096，
+向下对齐 8），`--proxy-long-edge` 默认 1024（32..2048）。超预算按阶段缩小 tile 或
+proxy（registration 超限不靠缩 tile 解决）；无法容纳单帧 decoder 或最小工作集则失败，不降低输出分辨率。
+
+```text
+P = full-resolution pixel count
+Q = proxy pixel count
+T = (tile_size + 2*64)^2
+usable = 0.8 * budget
+single_frame_decode = 24*P + largest_input_file_bytes + 128 MiB
+registration = 512*Q + 128 MiB
+coherent_maps_and_fusion = 128*Q + 512*T + 128 MiB
+reported_peak = max(these three stages) / 0.8
+scratch_estimate = 12*(N+1)*P + 20*N*Q + 6*P
+```
+
+spool、coarse labels 和 metadata 外，RGB resident 工作集不随 N×P 增长。
+512 bytes/tile-pixel 的保守 reserve 覆盖 source ROI、score/blur、base mask 总和、
+当前 source pyramids、所有 level 的 RGB numerator/gray denominator 与重建 buffers；
+不是实际分配常量。128 MiB 固定 reserve 覆盖 codec/OpenCV/allocator 工作区的估计，
+并非第三方库的严格上界；RSS 还含动态库、线程和 OS page cache。
+预算是 preflight 工程估计，**不是 OS RSS 限制或任意相机 RAW 解码保证**。
+真正 RAW 接入前仍要实测 decoder reserve。scratch 空间检查不是预分配承诺，
+磁盘中途写满仍走 typed I/O error；不发布 partial final image。
+
+下面保留原始预算设计中进一步的验收目标。与当前范围有差别时以上实现记录为准；
+RAW、精细 motion/local warp、streaming EXR 和 45–60 MP 性能标定仍属于后续工作。
 
 ## 预算按阶段计算，不同时持有 N 张全尺寸图
 
@@ -12,8 +100,7 @@ RGB float32 为 12P bytes；完整 Gaussian/Laplacian pyramid 约为原图的 4/
 还没有 focus scores、warp、masks 和 decoder scratch。因此禁止以
 `vector<image<...>>` 载入完整 bracket 后再设计 fusion。
 
-计划提供 `--memory-budget-mib`（默认目标 2048 MiB）和 `--scratch-directory`。
-它们尚未加入 CLI。预算覆盖项目分配、decoder／codec scratch、feature/RANSAC
+已提供 `--memory-budget-mib`（默认 2048 MiB）和 `--scratch-directory`。预算覆盖项目分配、decoder／codec scratch、feature/RANSAC
 工作区和并发 worker，不只统计 RGB buffer。预算不是 OS 级 RSS 硬限制；
 allocator、库内部开销和文件页缓存可能额外占用，需记录实测 peak RSS 和余量。
 第三方 decoder 的未知峰值不能被记作零，也不能保证任意相机都能在 2 GiB 解码。
@@ -61,7 +148,7 @@ store 可以用简单索引文件实现，或窄 adapter 接成熟格式，选�
 N² dense distance matrix。全组只常驻 transforms、残差摘要和有限分辨率的 maps；
 proxy 可放 scratch 按需读，不要求 N 张同时常驻。
 
-`photo_ops.registration` 接 project-owned gray views、proxy↔full-res 坐标映射
+`photo_ops.focus_stack` 内部 registration adapter 接 project-owned gray views、proxy↔full-res 坐标映射
 和显式 workspace budget，返回 source→reference similarity、inliers、residual、
 有效域与 confidence。必须记录 resize/crop/orientation、像素中心约定，并在
 full-res 反向采样时正确求逆；不能简单把 proxy 的 translation 原样用于原图。
@@ -125,3 +212,25 @@ downsample 相位。只有真实图像边界使用边界扩展，tile 边界从�
 4. 代表 45–60 MP bracket 实测 decode/fusion peak RSS、scratch 峰值与耗时，
    校准预算；disk-full、codec failure、目标冲突测试不得产生 partial final output。
 5. 再扩展真实风景的 foliage/water/parallax 回归；宏观 CR3 fixture 不代表风景已通过。
+
+## v0.3 验证记录（2026-10-25）
+
+- debug + EXR + ASan/UBSan clean build 与 C++ 回归通过；release / EXR 关闭的
+  clean build 与 C++ 回归通过。两配置的全部 10 项 Python tests 通过。
+- synthetic similarity 恢复 scale=1.015、rotation=0.015 rad、translation=(3,-2)，
+  并验证 step=2 的 proxy→full-res 像素中心共轭与重复运行稳定性。
+- 两个不同焦平面恢复各自细节；tile=32 与整域参考的所有红通道像素差小于
+  0.0002（含 193×129 奇数边界）。等亮度但不同颜色的 motion fixture 触发
+  reference fallback，静态 flat stack 保持三通道数值。
+- 2→4 帧重复输入的预算估计保持不变，scratch 估计增加；100 MP header fixture
+  在解码前因预算失败。streaming TIFF callback 中途报错不发布 final，并清理 temp。
+- 真实 PCB 七帧（manifest 固定来源，2048×1536）release / 512 MiB 预算：
+  wall time 48.75 s，peak child RSS 118492 KiB（约 115.7 MiB），estimated peak
+  280 MiB，scratch estimate 332.25 MiB。自动 proxy_step=4、tile=256；
+  full-res residual 约 1.91–2.98 px，估计 scale 0.9806–1.0167；motion 候选约 10.1%。
+  本机 review artifacts 在 `build/focus-review-v030/`（不提交图片和产物）。
+
+视觉对照可看到 USB 接口与远处散热片的细节共同恢复；针脚和复杂遮挡边界仍有
+局部 ghosting/softening，不能据此宣称已经解决 macro occlusion 或风景 motion。
+首版 similarity 残差、低频 motion heuristic 和多尺度 mask 都有适用范围；
+本轮未增加 homography、local flow 或调参到单张照片，也未做 45–60 MP 风景评测。

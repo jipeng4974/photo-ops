@@ -34,9 +34,9 @@ Before making architectural or algorithmic changes, read:
 
 Use Omarchy/Arch system packages as the canonical dependency path; Homebrew is
 explicitly optional. Use stock clang-format; do not restore a custom C++ lexical
-formatting pass. Before implementing registration/focus, honor the RAW/context
-and memory-budget contracts above. The current single-frame linear-sRGB decoder
-is a compatibility path, not a stable working-color ABI or a sequence-safe decoder.
+formatting pass. Honor the RAW/context and memory-budget contracts when extending
+`photo_ops.focus_stack`. The current single-frame linear-sRGB decoder is a
+compatibility path, not a stable working-color ABI or a sequence-safe decoder.
 Publish output files atomically without overwriting existing paths.
 
 If implementation and documentation disagree, do not silently reinterpret the design. Prefer a small explicit documentation update together with the code change.
@@ -121,11 +121,16 @@ photo_ops.raw
 photo_ops.image
 photo_ops.color
 photo_ops.pyramid
-photo_ops.registration
-photo_ops.focus
+photo_ops.focus_stack
 photo_ops.sunlight
 photo_ops.diagnostics
 ```
+
+Keep registration and fusion together in `photo_ops.focus_stack`; registration
+currently serves focus stacking alone. Split out a reusable registration module
+only when an actual second consumer justifies it. The initial implementation
+accepts consistently developed rendered TIFF/JPEG sequences; RAW brackets remain
+gated on the float/context pipeline, without a fallback to per-frame development.
 
 Exact partitioning should follow implementation needs; do not create tiny modules for every file.
 

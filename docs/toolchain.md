@@ -16,7 +16,7 @@ pkg-config 默认搜索目录。Omarchy 是开发环境，不需要修改桌面�
 安装清单（由开发者按需执行，本次未安装系统包）：
 
 ```bash
-sudo pacman -S --needed gcc pkgconf clang libraw libtiff libjpeg-turbo lcms2
+sudo pacman -S --needed gcc pkgconf clang libraw libtiff libjpeg-turbo lcms2 opencv
 sudo pacman -S --needed openexr  # 可选 EXR backend
 ```
 
@@ -49,10 +49,19 @@ CLANG_FORMAT="$(brew --prefix llvm)/bin/clang-format" xmake format-check
 不要混用两套 package 的 headers、pkg-config 与动态库。切换依赖路径后重新配置和
 clean build；保留配置输出和实际链接库版本，以 toolchain.json 中验证过的系统基线为准。
 
-基础依赖为 LibRaw、libtiff、libjpeg-turbo **3.2+**（ICC API）、LittleCMS；
+基础依赖为 LibRaw、libtiff、libjpeg-turbo **3.2+**（ICC API）、LittleCMS，
+focus_stack 增加 OpenCV **5**（本机 pkg-config 名 `opencv5`）；
 OpenEXR 由 `--exr=y` 启用，默认关闭。xmake 只通过 pkg-config 查找系统／brew
 库，不自动下载或编译另一套影像依赖。实际验证版本见 toolchain.json。
 LibRaw 的 CR3 支持也依赖具体相机型号，不能只依据扩展名保证全部相机支持。
+
+OpenCV 只用于 SIFT、mutual matching 和 robust similarity。Arch 的 `opencv5.pc`
+导出全部组件，会带入不需要的 GUI/VTK 链接；xmake 保留 pkg-config 的 include/
+library discovery，但把链接列表收窄到 `opencv_features`、`opencv_geometry`、
+`opencv_imgproc`、`opencv_flann`、`opencv_core`（部分 inline API 在优化构建中
+直接引用 flann 符号）。其他由这些库的动态依赖决定（包括 features 的 DNN 依赖），本算子
+不加载模型，也不使用 DNN。不是通过链接整套 OpenCV 让 core 变成 cv::Mat。
+
 
 验证配置：
 
@@ -140,8 +149,7 @@ photo_ops.raw
 photo_ops.image
 photo_ops.color
 photo_ops.pyramid
-photo_ops.registration
-photo_ops.focus
+photo_ops.focus_stack
 photo_ops.sunlight
 photo_ops.diagnostics
 ```
@@ -481,3 +489,13 @@ atomic 测试覆盖发布前不可见、放弃后清理、竞争发布不覆盖�
 `format-check`、shell 语法、README/AGENTS 英文约束与本地文档链接检查通过。
 brew 路径仅使用 stub 工具验证显式 opt-in 与 CC/CXX 覆盖，未宣称真实 brew 构建通过。
 验证后恢复 debug + EXR、关闭 sanitizer 的开发配置。
+
+
+## v0.3 focus_stack 验证（2026-10-25）
+
+新增系统 OpenCV 5.0.0，链接仅显式保留 features / geometry / imgproc / flann / core。
+debug + EXR + ASan/UBSan 与 release / EXR 关闭均完成构建和 C++ 回归，两个配置
+全部 10 项 Python tests 通过。含 proxy/full-res 坐标、focus planes、tile equivalence、
+等亮度 chromatic motion、预算 preflight、scratch/atomic stream failure 回归。
+完整真实样片指标与已知边界见 [focus-stack](focus-stack.md)。
+最终恢复 debug + EXR、关闭 sanitizer 的开发配置；未修改系统包或桌面配置。

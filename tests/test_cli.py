@@ -66,6 +66,44 @@ class CommandLine(unittest.TestCase):
             self.assertEqual(zero.returncode, 0, zero.stderr)
             self.assertFalse(json.loads((root/"zero/report.json").read_text())["applied"])
 
+    def test_focus_stack_cli_and_diagnostics(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source = root / "source.tif"
+            write_fixture(source)
+            result = self.run_cli("focus-stack", source, source, "-o", root/"stack.tif",
+                                  "--memory-budget-mib", "512", "--tile-size", "32",
+                                  "--scratch-directory", root,
+                                  "--diagnostics", root/"diagnostics")
+            self.assertEqual(result.returncode, 0, result.stderr)
+            report = json.loads((root/"diagnostics/report.json").read_text())
+            self.assertEqual(report["reference_index"], 1)
+            self.assertEqual(report["input_origin"], "rendered_rgb")
+            self.assertEqual(len(report["frames"]), 2)
+            self.assertEqual(report["frames"][0]["a"], 1)
+            self.assertLessEqual(report["estimated_peak_bytes"], 512*1024*1024)
+            self.assertTrue((root/"stack.tif").is_file())
+            self.assertFalse(list(root.glob("photo-ops-focus-*")))
+            again = self.run_cli("focus-stack", source, source, "-o", root/"stack.tif")
+            self.assertEqual(again.returncode, 1)
+
+    def test_focus_stack_rejects_raw_and_invalid_options(self):
+        cases = [
+            (("focus-stack", "a.CR3", "b.CR3", "-o", "unused.tif"), "RAW float/context"),
+            (("focus-stack", "a.tif", "-o", "unused.tif"), "at least two"),
+            (("focus-stack", "a.tif", "b.tif", "-o", "unused.tif",
+              "--strength", "1"), "--strength requires"),
+            (("focus-stack", "a.tif", "b.tif", "-o", "unused.tif",
+              "--memory-budget-mib", "-1"), "nonnegative integer"),
+            (("convert", "a.tif", "-o", "unused.tif", "--aligned"), "require focus-stack"),
+        ]
+        for args, message in cases:
+            with self.subTest(args=args):
+                result = self.run_cli(*args)
+                self.assertEqual(result.returncode, 1, result.stderr)
+                self.assertIn(message, result.stderr)
+                self.assertNotIn("unexpected failure", result.stderr)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -1,5 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 module;
+#include <functional>
+#include <span>
 #include <string>
 export module photo_ops.io;
 import photo_ops.image;
@@ -21,6 +23,16 @@ struct decoded_image {
 /// JPEG: 8-bit RGB/grayscale, ICC supported; stored orientation (no EXIF rotation).
 /// Return a recoverable format/decode/I/O error; resource exhaustion may still throw.
 result<decoded_image> read_image(const std::string &path, bool half_size_raw = false);
+
+/// Header-only dimensions for budget preflight; does not decode image pixels.
+/// Supports the same rendered TIFF/JPEG inputs as read_image; RAW is deliberately excluded.
+result<extent> rendered_image_size(const std::string &path);
+
+/// Stream one float32 linear-sRGB/D65 row at a time into atomic, ICC-tagged 16-bit TIFF.
+/// The callback fills the supplied row or returns an error; no full-frame output allocation.
+using image_row_reader = std::function<result<void>(std::size_t, std::span<linear_rgb>)>;
+result<void> write_tiff_rows(const std::string &path, extent dimensions,
+                             const image_row_reader &read_row);
 
 /// Output encodings are separate from the linear working representation.
 enum class output_format { tiff16, exr32, jpeg };

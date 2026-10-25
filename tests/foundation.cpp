@@ -35,6 +35,7 @@ import photo_ops.io;
 import photo_ops.output;
 
 void sunlight_tests();
+void focus_stack_tests();
 
 namespace p = photo_ops;
 
@@ -413,6 +414,7 @@ int main() {
     atomic_output_tests();
     io_tests();
     sunlight_tests();
+    focus_stack_tests();
     std::cout << checks << " checks passed\n";
     return 0;
   } catch (const std::exception &e) {
