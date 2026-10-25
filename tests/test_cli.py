@@ -86,6 +86,12 @@ class CommandLine(unittest.TestCase):
             self.assertEqual(len(report["frames"]), 2)
             self.assertEqual(report["frames"][0]["a"], 1)
             self.assertLessEqual(report["estimated_peak_bytes"], 512*1024*1024)
+            profile = report["profile"]
+            self.assertEqual(profile["decoded_frames"], 2)
+            self.assertGreater(profile["output_seconds"], 0)
+            self.assertEqual(profile["output_bytes"], (root/"stack.tif").stat().st_size)
+            self.assertGreater(profile["scratch_peak_file_bytes"], 0)
+            self.assertLessEqual(profile["peak_tile_cache_bytes"], report["tile_cache_capacity_bytes"])
             self.assertTrue((root/"stack.tif").is_file())
             self.assertFalse(list(root.glob("photo-ops-focus-*")))
             self.assertTrue((root/"diagnostics/defocus-boundary.tif").is_file())
@@ -101,6 +107,27 @@ class CommandLine(unittest.TestCase):
             self.assertFalse((conflict/"source-map.tif").exists())
             again = self.run_cli("focus-stack", source, source, "-o", root/"stack.tif")
             self.assertEqual(again.returncode, 1)
+
+    @unittest.skipIf(os.geteuid() == 0, "root bypasses directory write permissions")
+    def test_focus_diagnostic_failure_preserves_complete_photo(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source = root/"source.tif"
+            write_fixture(source)
+            diagnostics = root/"read-only"
+            diagnostics.mkdir(mode=0o555)
+            try:
+                result = self.run_cli("focus-stack", source, source, "-o", root/"stack.tif",
+                                      "--diagnostics", diagnostics)
+                self.assertEqual(result.returncode, 1, result.stderr)
+                self.assertIn("complete image published at", result.stderr)
+                self.assertIn("diagnostics failed", result.stderr)
+                inspected = self.run_cli("inspect", root/"stack.tif")
+                self.assertEqual(inspected.returncode, 0, inspected.stderr)
+                self.assertFalse((diagnostics/"report.json").exists())
+                self.assertFalse(list(diagnostics.iterdir()))
+            finally:
+                diagnostics.chmod(0o755)
 
     def test_focus_stack_rejects_missing_raw_and_invalid_options(self):
         cases = [

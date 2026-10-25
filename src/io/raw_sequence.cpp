@@ -354,6 +354,11 @@ result<developed_raw_frame> decode_raw_frame(const std::string &path,
   const auto size = ref.active_dimensions;
   const auto cfa = [&](long x, long y) { return ref.cfa[2 * (y & 1) + (x & 1)]; };
   image<gray> mosaic(size), green(size);
+  auto mosaic_view = mosaic.view(), green_view = green.view();
+  const auto mosaic_pixels = mosaic_view.storage(), green_pixels = green_view.storage();
+  const auto mosaic_stride = mosaic_view.stride(), green_stride = green_view.stride();
+  const auto &white_balance = context.white_balance();
+  const auto &encoding = context.encoding();
   raw_frame_statistics statistics;
   std::size_t saturated = 0;
   const auto *samples = decoder.imgdata.rawdata.raw_image;
@@ -363,12 +368,13 @@ result<developed_raw_frame> decode_raw_frame(const std::string &path,
       const auto c = cfa(x, y);
       const double raw = samples[(y + ref.top) * pitch + x + ref.left];
       saturated += raw >= ref.white[c];
-      mosaic.view().at(x, y).value =
-          (raw - ref.black[c]) / (ref.white[c] - ref.black[c]) * context.white_balance()[c];
+      mosaic_pixels[y * mosaic_stride + x].value =
+          (raw - ref.black[c]) / (ref.white[c] - ref.black[c]) * white_balance[c];
     }
   const auto reflect = [](long v, long n) { return v < 0 ? -v : v >= n ? 2 * n - 2 - v : v; };
   const auto at = [&](long x, long y) {
-    return mosaic.view().at(reflect(x, size.width), reflect(y, size.height)).value;
+    return mosaic_pixels[reflect(y, size.height) * mosaic_stride + reflect(x, size.width)]
+        .value;
   };
   // Directional green interpolation in float; second differences are measured on the same CFA
   // channel.
@@ -376,7 +382,7 @@ result<developed_raw_frame> decode_raw_frame(const std::string &path,
     for (long x = 0; x < static_cast<long>(size.width); ++x) {
       const float center = at(x, y);
       if (cfa(x, y) % 2) {
-        green.view().at(x, y).value = center;
+        green_pixels[y * green_stride + x].value = center;
         continue;
       }
       const float horizontal = (at(x - 1, y) + at(x + 1, y)) * .5f +
@@ -387,22 +393,26 @@ result<developed_raw_frame> decode_raw_frame(const std::string &path,
                        std::abs(2 * center - at(x - 2, y) - at(x + 2, y));
       const float dv = std::abs(at(x, y - 1) - at(x, y + 1)) +
                        std::abs(2 * center - at(x, y - 2) - at(x, y + 2));
-      green.view().at(x, y).value = dh < dv   ? horizontal
-                                    : dv < dh ? vertical
-                                              : (horizontal + vertical) * .5f;
+      green_pixels[y * green_stride + x].value = dh < dv   ? horizontal
+                                                 : dv < dh ? vertical
+                                                           : (horizontal + vertical) * .5f;
     }
   const auto difference = [&](long x, long y) {
     x = reflect(x, size.width);
     y = reflect(y, size.height);
-    return mosaic.view().at(x, y).value - green.view().at(x, y).value;
+    return mosaic_pixels[y * mosaic_stride + x].value -
+           green_pixels[y * green_stride + x].value;
   };
   image<rgb_f32> output(ref.output_dimensions);
+  auto output_view = output.view();
+  const auto output_pixels = output_view.storage();
+  const auto output_stride = output_view.stride();
   statistics.minimum = std::numeric_limits<float>::infinity();
   statistics.maximum = -statistics.minimum;
   std::size_t negatives = 0;
   for (long y = 0; y < static_cast<long>(size.height); ++y)
     for (long x = 0; x < static_cast<long>(size.width); ++x) {
-      const float g = green.view().at(x, y).value;
+      const float g = green_pixels[y * green_stride + x].value;
       std::array<double, 3> camera{0, g, 0};
       const auto c = cfa(x, y);
       if (c % 2 == 0) {
@@ -419,7 +429,7 @@ result<developed_raw_frame> decode_raw_frame(const std::string &path,
           static_cast<float>(m[0] * camera[0] + m[1] * camera[1] + m[2] * camera[2]),
           static_cast<float>(m[3] * camera[0] + m[4] * camera[1] + m[5] * camera[2]),
           static_cast<float>(m[6] * camera[0] + m[7] * camera[1] + m[8] * camera[2])};
-      const auto pixel = from_xyz(xyz, context.encoding());
+      const auto pixel = from_xyz(xyz, encoding);
       if (!std::isfinite(pixel.r) || !std::isfinite(pixel.g) || !std::isfinite(pixel.b))
         return fail(error_code::color, "RAW float development", "non-finite camera conversion",
                     path);
@@ -430,7 +440,7 @@ result<developed_raw_frame> decode_raw_frame(const std::string &path,
       std::size_t oy = ref.orientation & 2 ? size.height - 1 - y : y;
       if (ref.orientation & 4)
         std::swap(ox, oy);
-      output.view().at(ox, oy) = pixel;
+      output_pixels[oy * output_stride + ox] = pixel;
     }
   const double count = size.width * size.height;
   statistics.saturated_fraction = saturated / count;

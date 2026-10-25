@@ -204,5 +204,7 @@ P1-3 performance optimization
   diagnostics 与逐 pair motion veto；枝条／栏杆／岩石 × 多尺度 defocus，低曝光、
   彩色/亮前景、反向输入、proxy/tile 等价性和叠加运动回归见
   [defocus-boundaries](defocus-boundaries.md)。真实 R8 风景遮挡验收仍待素材。
-- P1-3 继续：下一步记录 stage-level profile，按预算选择 tile cache 或 two-pass
-  streaming，再用 R8 分辨率 / 3–8 帧 workload 测量 wall/RSS/scratch。
+- **P1-3 / v1.4.0**：已加入 stage / kernel / scratch profile、预算内单 tile cache 与
+  two-pass fallback，减少重复 warp / focus score 并优化逐行访问。PCB 七帧和 R8
+  原尺寸 3／8 次重复输入的 wall／RSS／scratch 对比见 [performance](performance.md)。
+  R8 重复输入仅验证资源／identity；真实 R8 bracket 的摄影验收仍待拍摄。

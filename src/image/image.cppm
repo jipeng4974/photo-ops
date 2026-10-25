@@ -51,7 +51,7 @@ struct extent {
   std::size_t height{};
 
   /// Check the canonical empty/nonempty shape without allocating storage.
-  bool valid() const noexcept {
+  inline bool valid() const noexcept {
     return (width == 0) == (height == 0);
   }
 };
@@ -75,7 +75,7 @@ public:
   image_view() = default;
 
   /// Borrow storage that covers every logical pixel, including inter-row padding.
-  image_view(std::span<Pixel> storage, extent size, std::size_t stride)
+  inline image_view(std::span<Pixel> storage, extent size, std::size_t stride)
       : storage_(storage), size_(size), stride_(stride) {
     contract_assert(valid_layout(storage, size, stride));
   }
@@ -83,39 +83,39 @@ public:
   /// Add constness without copying pixels or changing the layout.
   template <class Other>
     requires(std::is_const_v<Pixel> && std::same_as<Other, std::remove_const_t<Pixel>>)
-  image_view(image_view<Other> other)
+  inline image_view(image_view<Other> other)
       : image_view(other.storage(), other.size(), other.stride()) {
   }
 
   /// Logical pixel dimensions, excluding padding.
-  extent size() const noexcept {
+  inline extent size() const noexcept {
     return size_;
   }
 
   /// Number of pixel slots between successive row starts.
-  std::size_t stride() const noexcept {
+  inline std::size_t stride() const noexcept {
     return stride_;
   }
 
   /// Includes padding and any accessible trailing storage; row() excludes padding.
-  std::span<Pixel> storage() const noexcept {
+  inline std::span<Pixel> storage() const noexcept {
     return storage_;
   }
 
   /// Borrow one logical row. The caller must supply an in-range row index.
-  std::span<Pixel> row(std::size_t y) const {
+  inline std::span<Pixel> row(std::size_t y) const {
     contract_assert(y < size_.height);
     return storage_.subspan(y * stride_, size_.width);
   }
 
   /// Access an in-range pixel. A const view object can still reference mutable pixels.
-  Pixel &at(std::size_t x, std::size_t y) const {
+  inline Pixel &at(std::size_t x, std::size_t y) const {
     contract_assert(x < size_.width && y < size_.height);
     return row(y)[x];
   }
 
   /// Borrow an in-bounds crop, retaining stride. A zero-area crop becomes an empty view.
-  image_view subview(rectangle region) const {
+  inline image_view subview(rectangle region) const {
     contract_assert(region.x <= size_.width && region.y <= size_.height);
     contract_assert(region.width <= size_.width - region.x);
     contract_assert(region.height <= size_.height - region.y);
@@ -127,7 +127,8 @@ public:
   }
 
 private:
-  static bool valid_layout(std::span<Pixel> storage, extent size, std::size_t stride) noexcept {
+  static inline bool valid_layout(std::span<Pixel> storage, extent size,
+                                  std::size_t stride) noexcept {
     if (!size.valid())
       return false;
     if (size.width == 0)
@@ -170,23 +171,23 @@ public:
   }
 
   /// Check untrusted dimensions before calling the constructor at a file/user boundary.
-  static bool can_hold(extent size) noexcept {
+  static inline bool can_hold(extent size) noexcept {
     return size.valid() &&
            (size.height == 0 || size.width <= std::vector<Pixel>{}.max_size() / size.height);
   }
 
   /// Logical pixel dimensions, excluding padding.
-  extent size() const noexcept {
+  inline extent size() const noexcept {
     return size_;
   }
 
   /// Borrow mutable pixels. Reacquire views after moving or replacing the owner.
-  image_view<Pixel> view() & {
+  inline image_view<Pixel> view() & {
     return {pixels_, size_, size_.width};
   }
 
   /// Borrow read-only pixels; the owner must remain alive.
-  image_view<const Pixel> view() const & {
+  inline image_view<const Pixel> view() const & {
     return {pixels_, size_, size_.width};
   }
 
@@ -202,7 +203,7 @@ public:
   }
 
 private:
-  static std::size_t pixel_count(extent size) {
+  static inline std::size_t pixel_count(extent size) {
     contract_assert(can_hold(size));
     return size.width * size.height;
   }

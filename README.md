@@ -44,11 +44,14 @@ and writes signed float32 linear Rec.2020/D65 ICC TIFF. Consistently developed
 TIFF/JPEG sequences retain 16-bit sRGB TIFF output. RAW and rendered inputs cannot
 be mixed. See [RAW support and limits](docs/raw-pipeline.md).
 
+Focus-stack reports include stage timings and bounded tile-cache statistics; see
+[performance measurements](docs/performance.md).
+
 Existing outputs are never overwritten. Run `xmake run photo-ops --help` for all options.
 
 ## API
 
-Version **1.3.0** keeps two photographic entry points: `enhance_sunlight(...)` and
+Version **1.4.0** keeps two photographic entry points: `enhance_sunlight(...)` and
 `stack_focus(...)`.
 
 **Breaking change:** `align_focus_stack(...)` is no longer exported. Call

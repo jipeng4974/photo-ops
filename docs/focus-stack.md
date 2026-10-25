@@ -89,8 +89,9 @@ translation=(3,-2) 与反向 scale=.997 / rotation=-.002 / translation=(.31,-.27
    这是保守启发式，不能识别所有水面／叶片运动，也可能把开发差异当作 motion。
 7. 全尺寸 tile+halo 从 source spool 读取有界反投影 ROI。每帧计算 full-res focus
    evidence、平滑权重，并使用 coarse label/confidence 作软 prior（最低仍为 0.2）。
-   先顺序扫描得到 base weight 总和，再重读并归一化每个 source 的 mask。之后才建
-   4-level Gaussian weights / Laplacian RGB，逐帧累加、逐层归一并重建。
+   先顺序扫描得到 base weight 总和；预算允许时缓存当前 tile 的 warped RGB / base
+   weight，否则保留 two-pass 重读路径。归一化后建立 4-level Gaussian weights /
+   Laplacian RGB，逐帧累加、逐层归一并重建。
 8. halo=64、tile origin 对齐 8，真实图像边缘才 replicate，tile 只提交 interior。
    motion 区域最终精确还原 reference；未被所有 source 覆盖的边缘也使用 reference，
    保留 reference 的完整尺寸，**首版不自动 crop**。因此边缘可能不具备全景深。
@@ -102,7 +103,9 @@ translation=(3,-2) 与反向 scale=.997 / rotation=-.002 / translation=(.31,-.27
 灰度线性值 `index/(N-1)`，**不是 full-res blend 的逐像素唯一来源**。map 使用带
 sRGB ICC 的可视 TIFF，读取 scalar 时需逆 transfer。JSON 包括 reference、变换、
 match/inlier/residual、source 选择比例、motion/low-confidence 比例及预算估计。
-文件独立 atomic；多文件诊断与最终照片不是整体事务。
+最终照片先完整发布，再生成 diagnostics；`report.json` 最后发布并包含 output 时间。
+文件独立 atomic；多文件诊断与最终照片不是整体事务。diagnostic 阶段失败时返回
+typed error，明确指出完整照片已发布的位置；不会删除这张成功照片。
 
 ## 当前预算模型与限制
 
@@ -119,13 +122,18 @@ single_frame_decode_rendered = 24*P + largest_input_file_bytes + 128 MiB
 single_frame_decode_RAW = 40*raw_sensor_pixels + input_file_bytes + 256 MiB
 R = refinement proxy pixel count
 registration = max(512*Q, 128*R) + 128 MiB
-coherent_maps_and_fusion = 256*Q + 512*T + 128 MiB
+streaming_fusion = 256*Q + 512*T + 128 MiB
+cached_fusion = 256*Q + max(512, 384+16*N)*T + 128 MiB
+coherent_maps_and_fusion = cached_fusion if it fits usable, otherwise streaming_fusion
 reported_peak = max(these three stages) / 0.8
 scratch_estimate = 12*(N+1)*P + N*(36*Q + 4*R) + output_bytes
 output_bytes = 6*P (rendered) or 12*P (RAW)
 ```
 
-spool、coarse labels 和 metadata 外，RGB resident 工作集不随 N×P 增长。
+spool、coarse labels 和 metadata 外，不常驻 N 张 full-resolution RGB。缓存限于
+当前含 halo 的 tile：`16*N*T` bytes（RGB 12 + base weight 4）；只在 reserve 可容纳时
+启用，不通过自动缩小 tile 强求缓存。没有新增并行 worker；实际峰值与缓存容量写入
+profile。计时定义与实测见 [performance](performance.md)。
 512 bytes/tile-pixel 的保守 reserve 覆盖 source ROI、score/blur、base mask 总和、
 当前 source pyramids、所有 level 的 RGB numerator/gray denominator 与重建 buffers；
 不是实际分配常量。128 MiB 固定 reserve 覆盖 codec/OpenCV/allocator 工作区的估计，

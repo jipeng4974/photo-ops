@@ -43,27 +43,27 @@ struct raw_sequence_options {
 /// Frozen small calibration/manifest value. Pixels are decoded sequentially elsewhere.
 class raw_sequence_context {
 public:
-  std::span<const raw_frame_metadata> frames() const noexcept {
+  inline std::span<const raw_frame_metadata> frames() const noexcept {
     return frames_;
   }
 
-  const raw_frame_metadata &reference() const noexcept {
+  inline const raw_frame_metadata &reference() const noexcept {
     return frames_[reference_];
   }
 
-  std::size_t reference_index() const noexcept {
+  inline std::size_t reference_index() const noexcept {
     return reference_;
   }
 
-  const std::array<double, 4> &white_balance() const noexcept {
+  inline const std::array<double, 4> &white_balance() const noexcept {
     return wb_;
   }
 
-  const color_encoding &encoding() const noexcept {
+  inline const color_encoding &encoding() const noexcept {
     return encoding_;
   }
 
-  const std::string &fingerprint() const noexcept {
+  inline const std::string &fingerprint() const noexcept {
     return encoding_.normalization;
   }
 

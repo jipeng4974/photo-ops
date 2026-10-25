@@ -249,6 +249,17 @@ void context_and_development() {
   check(stacked.raw_context.has_value() &&
             stacked.raw_context->fingerprint() == context.fingerprint(),
         "focus stack must actually use the shared RAW context");
+  const auto pixel_count = stacked.dimensions.width * stacked.dimensions.height;
+  const auto proxy_count =
+      ((stacked.dimensions.width + stacked.proxy_step - 1) / stacked.proxy_step) *
+      ((stacked.dimensions.height + stacked.proxy_step - 1) / stacked.proxy_step);
+  const auto refinement_count =
+      ((stacked.dimensions.width + stacked.refinement_step - 1) / stacked.refinement_step) *
+      ((stacked.dimensions.height + stacked.refinement_step - 1) / stacked.refinement_step);
+  check(stacked.scratch_bytes == 12 * 3 * pixel_count +
+                                     2 * (36 * proxy_count + 4 * refinement_count) +
+                                     12 * pixel_count,
+        "RAW scratch preflight must reserve float32 final output alongside RGB spools");
   auto pixels = take(p::read_working_tiff(output));
   const auto result = pixels.pixels.view().at(28, 28);
   near(result.r, center.r, 2e-5);

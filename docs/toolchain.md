@@ -499,3 +499,19 @@ debug + EXR + ASan/UBSan 与 release / EXR 关闭均完成构建和 C++ 回归�
 等亮度 chromatic motion、预算 preflight、scratch/atomic stream failure 回归。
 完整真实样片指标与已知边界见 [focus-stack](focus-stack.md)。
 最终恢复 debug + EXR、关闭 sanitizer 的开发配置；未修改系统包或桌面配置。
+
+
+## v1.4 module 内 hot path 与验证（2026-10-26）
+
+profiling 发现 focus／pyramid 内重复 image accessor 和逐像素 view 构造的成本。
+对 named module 中 hot accessors／颜色数学显式 `inline`，保留原生 contracts；
+实现内部再按 row span 或已验证的 owned storage／stride 访问，避免每样本重新
+构造 view。没有引入 header-only、关闭 contracts 或 GCC 专用 force-inline。
+这不保证所有调用均被编译器内联；以实际 workload 耗时与像素等价性为依据。
+
+release / EXR 关闭的完整 C++ 与 CLI/Python 回归通过；24／32 帧预算边界验证
+cache 与 streaming 输出一致。profiling、实测 binary 身份和资源记录见
+[performance](performance.md)。切换 sanitizer 配置必须 clean rebuild 模块与所有
+consumers，避免混用旧 BMI。clean debug + EXR + ASan/UBSan 完整 C++ 与
+CLI／工具链 Python 回归通过，无 sanitizer 错误；release / EXR 关闭另通过 R8
+RAW／CRAW 和相邻 Canon 帧的 opt-in 解码／context／颜色检查。

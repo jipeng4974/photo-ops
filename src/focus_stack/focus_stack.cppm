@@ -38,6 +38,19 @@ struct focus_stack_frame_report {
   raw_frame_statistics raw_statistics;
 };
 
+/// Stage wall times include their nested scratch/warp/focus/pyramid measurements.
+struct focus_stack_profile {
+  double preflight_seconds = 0, decode_seconds = 0, registration_seconds = 0,
+         analysis_seconds = 0;
+  double fusion_seconds = 0, output_seconds = 0, diagnostics_seconds = 0, total_seconds = 0;
+  double scratch_read_seconds = 0, scratch_write_seconds = 0, warp_seconds = 0;
+  double focus_score_seconds = 0, pyramid_seconds = 0;
+  std::size_t scratch_read_bytes = 0, scratch_write_bytes = 0, scratch_peak_file_bytes = 0,
+              output_bytes = 0;
+  std::size_t decoded_frames = 0, tiles = 0, warp_calls = 0, focus_evaluations = 0,
+              peak_tile_cache_bytes = 0;
+};
+
 struct focus_stack_report {
   extent dimensions;
   std::size_t reference_index = 0;
@@ -48,6 +61,9 @@ struct focus_stack_report {
   std::vector<focus_stack_frame_report> frames;
   color_encoding encoding{rgb_primaries::srgb};
   std::optional<raw_sequence_context> raw_context;
+  focus_stack_profile profile;
+  bool tile_sources_cached = false;
+  std::size_t tile_cache_capacity_bytes = 0;
 };
 
 /// Stack same-sized rendered TIFF/JPEG or compatible RAW Bayer brackets atomically.

@@ -216,6 +216,30 @@ void fusion_tests() {
     for (std::size_t x = 0; x < width; ++x)
       check(std::abs(whole.pixels.view().at(x, y).r - stacked.pixels.view().at(x, y).r) < .0002,
             "tiled fusion must agree with whole-domain reference, including odd borders");
+  // Exercise cache/streaming equivalence on heterogeneous focus evidence, not only flat
+  // identity.
+  std::vector<std::string> many;
+  for (std::size_t i = 0; i < 24; ++i)
+    many.push_back(paths[i % 2]);
+  options.tile_size = 512;
+  const auto stream_many = (temp.path / "many-stream.tif").string();
+  auto stream_report = take(p::stack_focus(many, stream_many, options));
+  check(!stream_report.tile_sources_cached,
+        "heterogeneous low-budget workload must exercise streaming fallback");
+  options.memory_budget_mib = 1024;
+  const auto cache_many = (temp.path / "many-cache.tif").string();
+  auto cache_report = take(p::stack_focus(many, cache_many, options));
+  check(cache_report.tile_sources_cached,
+        "same heterogeneous workload must exercise cache with more budget");
+  auto streamed = take(p::read_image(stream_many)), cached = take(p::read_image(cache_many));
+  for (std::size_t y = 0; y < height; ++y)
+    for (std::size_t x = 0; x < width; ++x) {
+      const auto a = streamed.pixels.view().at(x, y), b = cached.pixels.view().at(x, y);
+      check(a.r == b.r && a.g == b.g && a.b == b.b,
+            "cache must preserve heterogeneous focus weights and all reconstructed RGB "
+            "channels exactly");
+    }
+  options.memory_budget_mib = 512;
   // A moving bright patch straddles tile boundaries. Use the reference coherently.
   for (std::size_t y = 40; y < 84; ++y)
     for (std::size_t x = 50; x < 90; ++x)
@@ -264,6 +288,34 @@ void memory_and_identity_tests() {
   check(two.estimated_peak_bytes == four.estimated_peak_bytes &&
             four.scratch_bytes > two.scratch_bytes,
         "frame count must grow scratch, not full-res resident RGB");
+  check(four.tile_sources_cached && four.profile.warp_calls == 4 * four.profile.tiles,
+        "budgeted tile cache must avoid the second source warp pass");
+  check(four.profile.peak_tile_cache_bytes <= four.tile_cache_capacity_bytes &&
+            four.profile.decoded_frames == 4 && four.profile.output_seconds > 0 &&
+            four.profile.scratch_peak_file_bytes > 0,
+        "profile must expose actual bounded workspace and completed output measurements");
+  options.tile_size = 512;
+  const auto streaming = take(p::stack_focus(std::vector<std::string>(32, source),
+                                             (temp.path / "streaming.tif").string(), options));
+  check(!streaming.tile_sources_cached && streaming.profile.peak_tile_cache_bytes == 0 &&
+            streaming.profile.warp_calls == 64 * streaming.profile.tiles,
+        "planner must retain two-pass streaming when tile source cache exceeds usable budget");
+  options.memory_budget_mib = 1024;
+  const auto cached = take(p::stack_focus(std::vector<std::string>(32, source),
+                                          (temp.path / "cached.tif").string(), options));
+  check(cached.tile_sources_cached && cached.profile.warp_calls == 32 * cached.profile.tiles &&
+            cached.estimated_peak_bytes <= 1024 * 1024 * 1024,
+        "larger budget may cache tiles while respecting the stage planner");
+  auto streamed_pixels = take(p::read_image((temp.path / "streaming.tif").string()));
+  auto cached_pixels = take(p::read_image((temp.path / "cached.tif").string()));
+  for (std::size_t y = 0; y < 49; ++y)
+    for (std::size_t x = 0; x < 65; ++x) {
+      const auto a = streamed_pixels.pixels.view().at(x, y),
+                 b = cached_pixels.pixels.view().at(x, y);
+      check(a.r == b.r && a.g == b.g && a.b == b.b,
+            "cached and two-pass fusion must produce identical pixels");
+    }
+  options.memory_budget_mib = 512;
   auto result = take(p::read_image((temp.path / "four.tif").string()));
   for (std::size_t y = 0; y < 49; ++y)
     for (auto pixel : result.pixels.view().row(y))
