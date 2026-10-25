@@ -6,6 +6,9 @@
 graph TD
     CLI[CLI inspect / convert / sunlight-enhance] --> IO[photo_ops.io]
     CLI --> DIAG[photo_ops.diagnostics]
+    IO --> OUT[photo_ops.output]
+    OUT --> ERR
+    DIAG --> OUT
     IO --> RAW[photo_ops.raw]
     IO --> COLOR[photo_ops.color]
     IO --> IMAGE[photo_ops.image]
@@ -30,7 +33,9 @@ module interfaces 可以跨 target 使用。第三方 headers 只出现在 imple
 或 header units；xmake 的自动 std module 构建也显式关闭。
 
 `photo_ops.sunlight` 已实现 classical MVP，见 [算法与诊断](sunlight-enhance.md)。
-后续按实际算法加入 `photo_ops.registration`、`photo_ops.focus`，不创建空模块。focus 的依赖方向为
+v0.2 前置契约见 [RAW / raw_sequence_context](raw-pipeline.md) 和
+[focus-stack 内存预算](focus-stack.md)。它们仍是待实现设计，不把当前单帧 sRGB
+decode 当作 sequence-safe wide-gamut 开发。后续按实际算法加入 `photo_ops.registration`、`photo_ops.focus`，不创建空模块。focus 的依赖方向为
 `focus → registration / pyramid / color / image`，文件解码与输出留给调用层。
 
 ## 目录按职责组织
@@ -40,13 +45,13 @@ src/
   core/error.cppm
   image/image.cppm, pyramid.cppm
   color/color.cppm
-  io/io.cppm, io.cpp, raw.cppm, raw.cpp
+  io/io.cppm, io.cpp, raw.cppm, raw.cpp, output.cppm, output.cpp
   sunlight/sunlight.cppm, sunlight.cpp
   diagnostics/diagnostics.cppm, sunlight.cpp
   cli/main.cpp
 tests/
   foundation.cpp, sunlight.cpp
-  test_format.py, test_cli.py
+  test_configure.py, test_cli.py
   data/*manifest.json, *provenance.json
 ```
 
@@ -57,7 +62,8 @@ tests/
 
 - `linear_rgb`：三个 interleaved IEEE-754 float32，linear-sRGB / D65；不以
   gamma 编码，不隐式裁到 `[0,1]`。选择 sRGB primaries 是首版明确的限制，
-  并非 camera-native 或宽色域工作空间。
+  并非 camera-native 或宽色域工作空间，也不是永久 ABI。未来带 encoding 的
+  working image 走 linear Rec.2020/D65，不能重新解释旧类型的样本语义。
 - `gray`：一个 float32；luminance proxy 使用线性相对亮度。
 - `image<Pixel>`：连续存储、唯一所有权、move-only；完整拷贝必须显式 `clone()`。
   moved-from 对象为空。非法 shape／尺寸溢出属于调用违约，零尺寸只允许 `0×0`；
@@ -68,7 +74,8 @@ tests/
   view 不延长 owner 生命周期，owner 移动、销毁或替换后应重新取得 view；
   禁止从临时 owner 直接取得 view。索引与 storage 覆盖范围均有检查。
 - 当前像素单位是相对值，无物理辐射定标。RAW 路径使用固定处理参数，
-  不进行逐帧 auto-brightening；未来 stack 需检查曝光、白平衡与相机模式一致性。
+  不进行逐帧 auto-brightening；未来 stack 必须在开发前冻结 `raw_sequence_context`，检查曝光／sensor mode，
+  共用 WB、black 模型和 normalization；当前逐帧 camera WB 不满足这个要求。
 
 `pyramid` 提供线性 luminance proxy 与 Gaussian 下采样：separable
 `[1 4 6 4 1]/16`，边界 replicate，偶数坐标取样，奇数尺寸向上取整。
@@ -96,6 +103,15 @@ TIFF 的 tiled、planar、alpha、浮点与其他 orientation 暂不支持。
 TIFF/JPEG 的逆 transfer/ICC 转换只得到线性 RGB，不能撤销相机 tone curve、
 局部处理、降噪与锐化。`decoded_image.origin` 保留这一区别，不能把 JPEG
 当作真正 scene-linear RAW。真正高动态范围 RAW float 开发是后续明确改进项。
+
+输出由 `photo_ops.output` 在目标同目录 `mkstemp`，encoder 完成并关闭后 fsync，
+以 Linux `renameat2(RENAME_NOREPLACE)` 发布。最终路径只在完整编码后出现；所有
+writer 默认拒绝覆盖（包括 dangling symlink），不依赖 CLI exists 预检查防竞态。
+正常失败由 RAII 删除临时文件，SIGKILL 可能留下 `.tmp-*`；不跨 filesystem rename，
+不退回会覆盖目标的方案。临时文件沿用 mkstemp 的 0600 权限。
+JSON report 同样 atomic，最后发布为 diagnostics 完成标记；多个文件不是整体事务，
+部分成功的 diagnostics 可保留，失败时 CLI 不发布最终照片。fsync 文件不等于
+断电后的目录持久性保证，本版不承诺后者。
 
 输出 writer 拒绝 NaN/Inf；TIFF/JPEG 默认不增加曝光、不自动美化。
 diagnostics 统计非有限值、越界像素、channel range 与平均 luminance。

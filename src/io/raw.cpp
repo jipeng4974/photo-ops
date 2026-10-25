@@ -14,7 +14,8 @@ void configure_linear_decode(libraw_output_params_t &parameters, raw_options opt
   parameters.gamm[0] = 1.0;
   parameters.gamm[1] = 1.0;
 
-  // Keep exposure and processing deterministic across a focus bracket.
+  // Deterministic single-frame settings; camera WB/black/scaling may still vary by frame.
+  // A focus bracket requires the planned raw_sequence_context before decoding.
   parameters.no_auto_bright = 1;
   parameters.adjust_maximum_thr = 0;
   parameters.use_camera_wb = 1;

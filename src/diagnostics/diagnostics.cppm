@@ -43,7 +43,8 @@ struct image_statistics {
 }
 
 /// Write paired JPEG previews (with the same documented exposure lift), mask TIFF and JSON.
-/// Refuses to overwrite diagnostic files; image output and diagnostic I/O errors are separate.
+/// Each file is atomic and never overwritten; JSON is published last, not a directory
+/// transaction. Image output and diagnostic I/O errors are separate.
 [[nodiscard]] result<void> write_sunlight_diagnostics(const std::string &directory,
                                                       image_view<const linear_rgb> source,
                                                       const sunlight_result &enhanced)

@@ -1,9 +1,26 @@
 # Design: Opinionated Computational-Photography Operators
 
-## 已落地的格式契约（2026-10-25）
+## v0.2 架构修正（2026-10-25）
+
+进入 `photo_ops.registration` / `photo_ops.focus` 前，以以下契约为准：
+
+- [RAW working pipeline 与 raw_sequence_context](raw-pipeline.md)：明确 camera-linear
+  float → XYZ → linear Rec.2020/D65，保留负值／高光；先冻结整组 WB、black 与
+  normalization，禁止逐帧自动开发。新路线仍待实现，不把现有 sRGB 视为永久 ABI。
+- [focus-stack 内存预算](focus-stack.md)：registration proxy + sequential decode/spool
+  + tiled full-res fusion；单帧 decoder 峰值、halo、maps、scratch 与输出都计入预算。
+- 输出现已使用同目录 temporary + atomic no-replace publish；每个文件独立完成，
+  不是多文件事务，也不保证断电后的目录持久性。
+- 依赖以 Omarchy/Arch system packages 为 canonical，brew 显式 opt-in；
+  formatter 使用 stock clang-format，删除 custom lexical pass。
+
+下文是产品算法方向；涉及全图融合的概念图不意味着可同时载入 N 张全尺寸图。
+当前实现与未来设计的差异应显式保留，不能把待实现契约当作已实现能力。
+
+## 当前已落地的兼容格式契约（2026-10-25）
 
 输入以 CR3 为优先，并支持 TIFF、JPEG。内部使用项目自有 float32 linear RGB
-buffer（首版明确为 linear-sRGB / D65）。默认输出为带 ICC 的 16-bit TIFF，
+buffer（当前旧路径明确为 linear-sRGB / D65，wide-gamut 迁移见上文）。默认输出为带 ICC 的 16-bit TIFF，
 EXR 与 JPEG 为可选输出，Linear DNG 留待后续。详细支持范围、RAW 解码的
 16-bit 中间结果限制，以及 rendered TIFF/JPEG 无法还原真实 scene radiance
 的区别，见 [基础层架构](architecture.md)。

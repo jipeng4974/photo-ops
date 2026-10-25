@@ -34,6 +34,7 @@ struct output_options {
 
 /// TIFF/JPEG encode sRGB, embed ICC, and clip to [0,1]; no implicit tone map.
 /// EXR preserves finite negative/HDR values in float32 linear sRGB/D65.
+/// Atomically publishes a completed file; never overwrites an existing path.
 /// Reject unsupported options, invalid output data and I/O failures through the result.
 [[nodiscard]] result<void> write_image(const std::string &path,
                                        image_view<const linear_rgb> pixels,

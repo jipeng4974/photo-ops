@@ -10,6 +10,7 @@ module;
 module photo_ops.diagnostics;
 import photo_ops.image;
 import photo_ops.io;
+import photo_ops.output;
 import photo_ops.sunlight;
 import photo_ops.color;
 
@@ -80,7 +81,10 @@ result<void> write_sunlight_diagnostics(const std::string &directory,
     return written;
 
   const auto &report = enhanced.report;
-  std::ofstream file(root / "report.json");
+  auto transaction = atomic_output::create((root / "report.json").string());
+  if (!transaction)
+    return std::unexpected(transaction.error());
+  std::ofstream file(transaction->temporary_path());
   file << "{\n  \"algorithm\": \"sunlight-classical-v1\",\n"
        << "  \"applied\": " << (report.applied ? "true" : "false")
        << ",\n  \"candidate_regions\": " << report.candidate_regions
@@ -93,7 +97,8 @@ result<void> write_sunlight_diagnostics(const std::string &directory,
        << ",\n  \"working_space\": \"float32 linear-sRGB/D65\"\n}\n";
   file.close();
   if (!file)
-    return fail(error_code::io, "write diagnostics", "cannot finalize JSON", directory);
-  return {};
+    return fail(error_code::io, "write diagnostics", "cannot finalize JSON",
+                (root / "report.json").string());
+  return transaction->commit();
 }
 } // namespace photo_ops

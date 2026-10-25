@@ -23,5 +23,8 @@
       "-fcontracts"
     ],
     "template_preconditions": "contract_assert, verified with subprocess termination tests"
-  }
+  },
+  "dependency_path": "arch-system",
+  "optional_dependency_path": "PHOTO_OPS_DEPS=brew",
+  "formatting": "stock clang-format; no custom C++ lexical pass"
 }

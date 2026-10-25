@@ -29,6 +29,15 @@ Before making architectural or algorithmic changes, read:
 
 - `docs/design.md` — product goals, algorithms, failure modes, and MVP scope.
 - `docs/toolchain.md` — canonical C++ toolchain and coding philosophy.
+- `docs/raw-pipeline.md` — wide-gamut RAW and immutable sequence-context design.
+- `docs/focus-stack.md` — registration proxies and memory-budgeted full-resolution fusion.
+
+Use Omarchy/Arch system packages as the canonical dependency path; Homebrew is
+explicitly optional. Use stock clang-format; do not restore a custom C++ lexical
+formatting pass. Before implementing registration/focus, honor the RAW/context
+and memory-budget contracts above. The current single-frame linear-sRGB decoder
+is a compatibility path, not a stable working-color ABI or a sequence-safe decoder.
+Publish output files atomically without overwriting existing paths.
 
 If implementation and documentation disagree, do not silently reinterpret the design. Prefer a small explicit documentation update together with the code change.
 

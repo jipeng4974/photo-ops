@@ -1,4 +1,4 @@
-# Preferred developer dependencies; the canonical compiler line is GCC 16.2.x.
+# Optional developer dependencies (PHOTO_OPS_DEPS=brew); the canonical compiler line is GCC 16.2.x.
 # Review versions before upgrading; Brewfile alone is not a version lock.
 brew "gcc"
 brew "xmake"

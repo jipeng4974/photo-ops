@@ -9,31 +9,45 @@ clean build、incremental build 与跨 target module consumers。当前显式关
 `build.c++.modules.std`；标准库用 global module fragment 中的 headers，
 项目 API 使用 named modules。
 
-优先通过 Homebrew 管理依赖：
+## Canonical dependency path：Omarchy / Arch system packages
+
+编译器和影像库以 Arch 系统包为 canonical，使用系统 `gcc` / `g++` 和
+pkg-config 默认搜索目录。Omarchy 是开发环境，不需要修改桌面配置。
+安装清单（由开发者按需执行，本次未安装系统包）：
 
 ```bash
-brew bundle --file=Brewfile
-scripts/configure.sh -m debug --exr=y -y
-xmake -j4
-xmake test
+sudo pacman -S --needed gcc pkgconf clang libraw libtiff libjpeg-turbo lcms2
+sudo pacman -S --needed openexr  # 可选 EXR backend
 ```
 
-`Brewfile` 是安装清单，不会冻结 formula 版本；`configure.sh` 优先选择
-brew 的 `gcc-16` / `g++-16` 与 pkg-config 目录，GCC 系列不符会直接报错。
-可用 `CC` / `CXX` 显式选择编译器。更新 GCC series 需同步 xmake 检查、
-toolchain.json 与验证记录，不自动退回旧语言标准。
-
-本次会话没有发现 brew 或预装 xmake，因此实际验证使用现有系统 GCC 和
-系统影像库，并从固定 release 源码构建了项目本地 xmake，未更改系统包或
-Omarchy 配置。brew 路径尚未在此环境实测。没有全局 xmake 时：
+xmake 优先使用已安装的系统版本（要求 3.1.2+）；没有时使用下面固定 release、
+有 SHA-256 校验的本地 bootstrap，不为了安装 xmake 换整套依赖来源：
 
 ```bash
-scripts/bootstrap-xmake.sh     # 源码 archive 有 SHA-256 校验
+scripts/bootstrap-xmake.sh
 export PATH="$PWD/.tools/install/bin:$PATH"
 scripts/configure.sh -m debug --exr=y -y
 xmake -j4
 xmake test
 ```
+
+系统包滚动更新不是版本锁。GCC 仍限定 16.2.x，JPEG 仍要求 3.2+，不能因包版本
+变化而自动降级语言或关闭 modules/contracts。版本不符先停止，升级时同步 xmake
+检查、toolchain.json，并重新验证 clean/incremental build 和跨 target module consumers。
+`CC` / `CXX` 可显式覆盖；`PKG_CONFIG_PATH` 的用户覆盖保留，不隐式插入 brew 路径。
+
+Homebrew 是 **optional**，只有显式选择才使用其 compiler/library 路径；仅仅安装
+brew 不改变 configure 行为。Brewfile 仍不是版本锁，brew 路径尚未在本机真实实测：
+
+```bash
+brew bundle --file=Brewfile
+PHOTO_OPS_DEPS=brew scripts/configure.sh -m debug --exr=y -y
+# formatter 如不在 PATH，可显式设置：
+CLANG_FORMAT="$(brew --prefix llvm)/bin/clang-format" xmake format-check
+```
+
+不要混用两套 package 的 headers、pkg-config 与动态库。切换依赖路径后重新配置和
+clean build；保留配置输出和实际链接库版本，以 toolchain.json 中验证过的系统基线为准。
 
 基础依赖为 LibRaw、libtiff、libjpeg-turbo **3.2+**（ICC API）、LittleCMS；
 OpenEXR 由 `--exr=y` 启用，默认关闭。xmake 只通过 pkg-config 查找系统／brew
@@ -64,12 +78,11 @@ ASan/UBSan 后 188 项断言与 11 个真实输入 smoke 全部通过；release 
 完整分辨率 CR3 解码得到 5118×3412、无 NaN/Inf。增量无改动构建通过。
 工作目录最终回到 debug + EXR、关闭 sanitizer 的开发配置。
 
-当前新增的工程约定见 [cpp-style.md](cpp-style.md)：clang-format LLVM / 96 列、
-构建前检查、全局声明／定义间空行，及原生 contracts 编译／链接 flags。
-`Brewfile` 增加 `llvm` 提供 formatter；仍使用 GCC 编译项目。当前库与 CLI 已使用
-`std::expected` 返回可恢复失败。`tests/test_format.py` 与 `tests/test_cli.py`
-提供七项离线 Python 回归；C++ tests 加入 contracts 和 sunlight 行为回归。
-重构后的 debug + EXR + ASan/UBSan clean build 与 C++／Python tests 已通过。
+当前工程约定见 [cpp-style.md](cpp-style.md)：stock clang-format LLVM / 96 列目标、
+构建前检查、原生 contracts 编译／链接 flags；v0.2 已删除 custom declaration-spacing
+pass，不再维护 C++ lexical parser。库与 CLI 使用 `std::expected` 返回可恢复失败。
+Python 回归验证 CLI 和 system/brew 选择，C++ 回归覆盖数学原语、contracts、sunlight
+及 atomic output。下文末尾的七项 Python tests 记录属于 v0.1 历史验证。
 
 依赖许可证方向：LibRaw 提供 LGPL-2.1/CDDL 双许可，可选择兼容的 LGPL
 路径；LittleCMS 与 libtiff 为 MIT 风格；libjpeg-turbo 含 IJG/BSD/zlib
@@ -454,3 +467,16 @@ format/CLI 回归均通过；debug + EXR + ASan/UBSan 也通过。最终采用
 预期 SIGABRT 子进程设置 `PR_SET_DUMPABLE=0`，重跑后 systemd-coredump 没有
 新增 photo-ops-tests 事件；独立的 Omarchy 用户服务 drop-in 精确忽略该程序通知，
 记录在 `~/CHANGES.md`，不属于项目源码配置。
+
+## v0.2 架构修正验证（2026-10-25）
+
+使用 Arch 系统 GCC / pkg-config 影像库与项目本地 xmake：debug + EXR +
+ASan/UBSan clean build、release + EXR 关闭 clean build 均通过，各配置的 C++
+foundation / sunlight / atomic output 回归和五项 Python CLI/configure 回归均通过。
+atomic 测试覆盖发布前不可见、放弃后清理、竞争发布不覆盖、dangling symlink、
+重复 commit、各 encoder 的已存在目标，以及 RLIMIT_FSIZE 引发的真实 JPEG
+短写／关闭失败（无 final file、无遗留 temp）。未重新调节摄影算法或运行真实照片评测。
+
+`format-check`、shell 语法、README/AGENTS 英文约束与本地文档链接检查通过。
+brew 路径仅使用 stub 工具验证显式 opt-in 与 CC/CXX 覆盖，未宣称真实 brew 构建通过。
+验证后恢复 debug + EXR、关闭 sanitizer 的开发配置。

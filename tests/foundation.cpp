@@ -32,6 +32,7 @@ import photo_ops.color;
 import photo_ops.pyramid;
 import photo_ops.diagnostics;
 import photo_ops.io;
+import photo_ops.output;
 
 void sunlight_tests();
 
@@ -185,6 +186,77 @@ struct temporary_directory {
   }
 };
 
+void atomic_output_tests() {
+  temporary_directory temp;
+  const auto destination = (temp.path / "result.json").string();
+  std::string abandoned;
+  {
+    auto staged = take(p::atomic_output::create(destination));
+    abandoned = staged.temporary_path();
+    std::ofstream(abandoned) << "partial";
+    require(!std::filesystem::exists(destination), "uncommitted output must be invisible");
+  }
+  require(!std::filesystem::exists(abandoned), "aborted temporary output must be removed");
+  {
+    auto first = take(p::atomic_output::create(destination));
+    auto second = take(p::atomic_output::create(destination));
+    std::ofstream(first.temporary_path()) << "complete";
+    std::ofstream(second.temporary_path()) << "loser";
+    succeeds(first.commit());
+    rejects([&] { return second.commit(); });
+    rejects([&] { return first.commit(); });
+    std::string contents;
+    std::ifstream(destination) >> contents;
+    require(contents == "complete", "late competing writer must preserve published bytes");
+  }
+  const auto link = temp.path / "dangling.json";
+  std::filesystem::create_symlink(temp.path / "absent.json", link);
+  {
+    auto staged = take(p::atomic_output::create(link.string()));
+    std::ofstream(staged.temporary_path()) << "replacement";
+    rejects([&] { return staged.commit(); });
+  }
+  require(std::filesystem::is_symlink(link), "dangling output symlink must be preserved");
+  p::image<p::linear_rgb> pixel({1, 1});
+  for (auto format :
+       {p::output_format::tiff16, p::output_format::jpeg, p::output_format::exr32}) {
+    const auto path =
+        (temp.path / ("encoded-" + std::to_string(static_cast<int>(format)))).string();
+    if (format != p::output_format::exr32 || p::exr_available()) {
+      succeeds(p::write_image(path, pixel.view(), {format}));
+      const auto size = std::filesystem::file_size(path);
+      rejects([&] { return p::write_image(path, pixel.view(), {format}); });
+      require(std::filesystem::file_size(path) == size,
+              "encoder must preserve existing output");
+    }
+  }
+  const auto failed = (temp.path / "invalid.jpg").string();
+  rejects([&] { return p::write_image(failed, pixel.view(), {p::output_format::jpeg, 101}); });
+  require(!std::filesystem::exists(failed), "failed encoding must not publish a destination");
+  // Exercise an actual short write/finalization failure, not only invalid arguments.
+  const auto short_write = (temp.path / "short-write.jpg").string();
+  const auto child = ::fork();
+  require(child >= 0, "fork short-write test");
+  if (child == 0) {
+    const rlimit limit{1, 1};
+    if (::setrlimit(RLIMIT_FSIZE, &limit) != 0)
+      ::_exit(2);
+    std::signal(SIGXFSZ, SIG_IGN);
+    const auto written = p::write_image(short_write, pixel.view(), {p::output_format::jpeg});
+    ::_exit(!written && written.error().code == p::error_code::io ? 0 : 3);
+  }
+  int status = 0;
+  require(::waitpid(child, &status, 0) == child && WIFEXITED(status) &&
+              WEXITSTATUS(status) == 0,
+          "short write must return an I/O failure");
+  require(!std::filesystem::exists(short_write), "short write must not publish partial output");
+  rejects(
+      [&] { return p::write_image((temp.path / "missing/out.tif").string(), pixel.view()); });
+  for (const auto &entry : std::filesystem::directory_iterator(temp.path))
+    require(entry.path().filename().string().find(".tmp-") == std::string::npos,
+            "all temporary outputs must be cleaned up");
+}
+
 void io_tests() {
   temporary_directory temp;
   p::image<p::linear_rgb> image({10, 9});
@@ -294,8 +366,9 @@ void io_tests() {
   TIFFClose(file);
   rejects([&] { return p::read_image(linear_path); });
   image.view().at(0, 0) = {-0.1, 2.f, 0.18};
-  succeeds(p::write_image(tiff_path, image.view()));
-  auto clipped = take(p::read_image(tiff_path));
+  const auto clipped_path = (temp.path / "clipped.tif").string();
+  succeeds(p::write_image(clipped_path, image.view()));
+  auto clipped = take(p::read_image(clipped_path));
   near(clipped.pixels.view().at(0, 0).r, 0.f, 0.0002);
   near(clipped.pixels.view().at(0, 0).g, 1.f, 0.0002);
   const auto exr_path = (temp.path / "range.exr").string();
@@ -337,6 +410,7 @@ int main() {
     image_tests();
     color_tests();
     pyramid_tests();
+    atomic_output_tests();
     io_tests();
     sunlight_tests();
     std::cout << checks << " checks passed\n";

@@ -2,26 +2,26 @@
 
 ## 格式进入构建流程
 
-`.clang-format` 基于 LLVM，行宽 **96**，`SeparateDefinitionBlocks: Always`，
-短函数也保留完整函数体布局。当前实测 clang-format 23.1.3，工具可由 brew 的
-`llvm` 提供，或用 `CLANG_FORMAT` 指定路径；这不会改变 GCC 编译器选择。
+v0.2 决定只维护 stock clang-format，不再维护自定义 declaration-spacing pass。
+`.clang-format` 基于 LLVM，`ColumnLimit: 96`，`SeparateDefinitionBlocks: Always`，
+短函数保留完整函数体。当前实测 clang-format 23.1.3；canonical 来源为 Arch
+`clang` 包，也可用 `CLANG_FORMAT` 指定工具路径，不改变 GCC 编译器选择。
 
 ```bash
 xmake format                 # 显式修改源码
 xmake format-check           # 只检查
-xmake                       # library 构建前也执行相同检查，不偷偷改文件
+xmake                       # library 构建前执行相同检查，不偷偷改文件
 python -m unittest discover -s tests -p 'test_*.py'
 ```
 
-clang-format 原生不保证连续函数声明／全局变量之间有空行。因此
-`scripts/format.py` 在 clang-format 前后之间补充作用域级的声明间隔，再检查
-96 列硬上限。函数、全局变量／常量定义与声明之间留一行；class 的函数声明
-也分隔，普通成员字段与函数内局部语句不强制逐条空行。
+先前的 lexical pass 只为了在连续声明／全局变量间强制空行，却需要理解
+initializer、lambda、template、contracts 和未来语法的作用域；摄影算子的收益不足以
+抵消一个非 AST C++ parser 的长期维护成本。因此删除 pass 及其专属测试，放弃
+clang-format 不能直接表达的强制逐声明空行规则。可以按逻辑分段，但不自制解析器
+来检查它。`scripts/format.py` 仅负责枚举文件、调用一次 clang-format、展示 diff。
+96 列遵从 clang-format 的可折行结果；不再用硬长度检查拒绝不可拆的标识符或文本。
+formatter 升级若引起样式变化，显式 review 后提交，不自动扩充自定义规则。
 
-补充规则是一个跳过注释／字符串并跟踪花括号与参数层级的轻量 lexical pass，
-不是通用 C++ AST formatter；覆盖当前模块写法，测试包括 aggregate initializer、
-namespace、模板相关作用域、原生 contracts、注释与重复格式化的稳定性。
-遇到新的复杂声明语法，先补相应例子，再扩展规则，不用宽泛正则直接扫整份源码。
 格式之外，公共接口用 `///` 解释单位、所有权、颜色假设、返回值与错误语义；
 函数内按逻辑阶段分段，对意图不直观的步骤解释原因，不逐句翻译代码。
 

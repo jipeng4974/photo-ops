@@ -26,6 +26,7 @@ module photo_ops.io;
 import photo_ops.image;
 import photo_ops.color;
 import photo_ops.raw;
+import photo_ops.output;
 
 namespace photo_ops {
 namespace {
@@ -294,7 +295,7 @@ result<void> write_tiff(const std::string &path, image_view<const linear_rgb> pi
     if (TIFFWriteScanline(file.get(), row.data(), y) < 0)
       return fail(error_code::io, "image I/O", "cannot write TIFF scanline");
   }
-  if (!TIFFWriteDirectory(file.get()))
+  if (!TIFFWriteDirectory(file.get()) || !TIFFFlush(file.get()))
     return fail(error_code::io, "image I/O", "cannot finalize TIFF");
   return {};
 }
@@ -427,7 +428,13 @@ result<void> write_encoded_image(const std::string &path, image_view<const linea
 
 result<void> write_image(const std::string &path, image_view<const linear_rgb> pixels,
                          output_options options) {
-  return write_encoded_image(path, pixels, options).transform_error([&](error failure) {
+  auto transaction = atomic_output::create(path);
+  if (!transaction)
+    return std::unexpected(transaction.error());
+  auto encoded = write_encoded_image(transaction->temporary_path(), pixels, options);
+  if (encoded)
+    encoded = transaction->commit();
+  return encoded.transform_error([&](error failure) {
     failure.path = path;
     return failure;
   });

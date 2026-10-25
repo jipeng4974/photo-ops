@@ -1,5 +1,5 @@
 set_project("photo-ops")
-set_version("0.1.1")
+set_version("0.2.0")
 set_xmakever("3.1.2")
 set_languages("c++26")
 add_cxxflags("-fcontracts", "-fcontract-evaluation-semantic=quick_enforce")
@@ -26,7 +26,7 @@ if has_config("sanitize") then
 end
 
 -- pkg-config keeps dependency discovery independent of the package manager.
--- scripts/configure.sh prefers Homebrew's pkg-config directories.
+-- System packages are canonical; PHOTO_OPS_DEPS=brew explicitly opts into Homebrew.
 add_requires("pkgconfig::libraw", {alias = "raw", system = true})
 add_requires("pkgconfig::libtiff-4", {alias = "tiff", system = true})
 add_requires("pkgconfig::libturbojpeg >=3.2.0", {alias = "jpeg", system = true})

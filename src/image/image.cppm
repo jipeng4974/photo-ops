@@ -11,7 +11,9 @@ module;
 export module photo_ops.image;
 
 export namespace photo_ops {
-/// Interleaved float32 linear-sRGB / D65. Negative and HDR values are permitted.
+/// Legacy interleaved float32 linear-sRGB / D65; not a stable working-color ABI.
+/// Wide-gamut data requires an explicit color descriptor/API (docs/raw-pipeline.md).
+/// Negative and HDR values are permitted.
 struct linear_rgb {
   float r{};
   float g{};
