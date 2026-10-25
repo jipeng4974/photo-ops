@@ -110,9 +110,10 @@ black 不是“所有相机永远用一个常数”。若 sensor 需要逐行／
 WB 和 white 都记录为原始证据，不再隐式覆盖 context。WB 的 EXIF 差异可以仅报告，
 实际开发仍使用共享 multipliers；无有效 reference WB 时需用户指定，不能猜。
 
-曝光时间、ISO、标称光圈必须一致（有理数等价和已声明的 metadata 精度容差除外）。
-不一致的曝光 bracket 默认拒绝；未来如引入显式 EV 校正，应写入 context 并说明
-噪声／饱和差异，不能按图像亮度自行拉齐。black/white 的容差必须来自 decoder
+默认 fixed policy 要求曝光时间、ISO、标称光圈一致（有理数等价和已声明的 metadata
+精度容差除外），不按 metadata 微小误差补 gain。v1.6 提供显式 shutter_bracket
+RAW engineering policy，仅允许 shutter 改变；共享 reference shutter / frame shutter
+归一到同一信号尺度，ISO／aperture 仍须一致。不能按图像亮度自行拉齐。black/white 的容差必须来自 decoder
 metadata 语义与 fixture 验证，在报告中列明；初版没有已验证容差时用严格匹配。
 对每帧额外报告 raw 饱和比例、负值、normalization 后范围与有效区域。
 不因某一帧饱和而改变全组的 scaling。
@@ -155,3 +156,35 @@ metadata 错误与不兼容返回 typed error；不应触发 contracts。
   build/test 负载，属于 correctness / resource 基线，非独占性能比较。
 - 该三帧是很长 macro stack 的连续前缀；目视检查只有极小焦平面片段，不能声称
   已恢复整个场景景深。性能、defocus boundary 与风景素材验收继续分别推进。
+
+## v1.6：shutter-only context 与 sensor support
+
+为 `todo2` 的 HDR 实现增加两项 RAW 工程契约；本次尚未新增 HDR photographic operator。
+普通 `stack_focus` 仍选择 `raw_exposure_policy::fixed`，不同曝光继续拒绝。
+
+- `raw_sequence_options.exposure_policy = shutter_bracket` 显式选择 AEB；reference
+  的 WB、black／white、camera matrix、geometry／CFA 仍共享不变，ISO／aperture
+  不一致继续失败。每帧按 `reference.shutter / frame.shutter` 缩放 float 工作 RGB，
+  reference 为 1；最大允许距 reference ±16 EV，超限／非法数值明确报错。
+- exposure policy 和有序 metadata 被加入 v2 context fingerprint。存储相同 signed／
+  HDR 语义；scope 是相对 reference exposure 的信号，不是绝对辐射度或自动 tone map。
+- `decode_raw_frame(..., raw_decode_options{.sensor_support=true})` 可返回与 RGB 同向的
+  `image<raw_sensor_range>`。minimum／maximum 是 **pre-WB** 的
+  `(raw-black)/(white-black)` 在完整 demosaic 7×7 support 中的极值。因插值的色差
+  依赖相邻 green，而 green 又依赖 ±2 samples，不能只看中心像素或 3×3。
+- 饱和判断不从 Rec.2020 通道是否大于 1 反推；WB／矩阵后的 HDR 数值与 sensor
+  clipping 是两件事。support 也提供暗部 signal floor 的保守输入，但不是校准 SNR。
+- support 是 opt-in、8 bytes/output-pixel。两个 separable min/max pass 使用有界
+  全帧临时 buffer，并在 RGB 输出分配前依次释放；相对原单帧 decode reserve 增加
+  `8*output_pixels`。该成本在 unpack 前用 immutable context 的 budget 检查。
+  仍只解码一帧，不持有 N 张 full-resolution 图。
+
+release / EXR 关闭 clean build、完整 C++ 与 22 项 Python 回归（1 项可选 sunlight
+实拍检查跳过）通过。新增 deterministic DNG 检查 gain、signed/HDR、pre-WB extrema、
+7×7 saturation 扩张、orientation、policy identity、ISO／aperture／极端 shutter 拒绝，
+以及 fixed policy 仍拒绝真实不同 shutter，容许的微小 metadata 差异不触发 gain。
+真实 R8 AEB 质量验收仍待对应 bracket；已有单张不能替代。
+
+真实 R8 RAW 与 CRAW 单张的 full-resolution sensor-support 检查也已 opt-in 通过，
+输出尺寸与 RGB 一致、采样极值有限且有序；Canon 相邻三帧颜色／context 和原有
+完整 C++ 回归一并通过。这仍不代表 AEB radiometric merge 的真实素材验收。

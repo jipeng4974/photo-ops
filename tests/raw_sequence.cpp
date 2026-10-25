@@ -300,6 +300,86 @@ void context_and_development() {
         "context frame index/path mismatch must reject");
 }
 
+void shutter_bracket_contract() {
+  workspace temp;
+  std::vector<std::string> paths;
+  for (const auto &[name, exposure] :
+       {std::pair{"short.dng", .0025f}, {"middle.dng", .01f}, {"long.dng", .04f}}) {
+    paths.push_back((temp.path / name).string());
+    write_dng(paths.back(), {.5, 1, .25}, 64, exposure);
+  }
+  check(!p::prepare_raw_sequence(paths), "ordinary focus RAW context must still reject AEB");
+  p::raw_sequence_options options;
+  options.exposure_policy = p::raw_exposure_policy::shutter_bracket;
+  auto context = take(p::prepare_raw_sequence(paths, options));
+  near(context.exposure_scale(0), 4);
+  near(context.exposure_scale(1), 1);
+  near(context.exposure_scale(2), .25);
+  auto center = take(p::decode_raw_frame(paths[1], context, 1));
+  check(center.sensor_support.size().width == 0, "sensor map is opt-in for ordinary decoding");
+  for (std::size_t i = 0; i < paths.size(); ++i) {
+    auto developed = take(p::decode_raw_frame(paths[i], context, i, {.sensor_support = true}));
+    const auto gain = context.exposure_scale(i);
+    for (std::size_t y = 0; y < 64; ++y)
+      for (std::size_t x = 0; x < 64; ++x) {
+        const auto a = developed.image.pixels.view().at(x, y);
+        const auto b = center.image.pixels.view().at(x, y);
+        near(a.r, b.r * gain);
+        near(a.g, b.g * gain);
+        near(a.b, b.b * gain);
+      }
+    const auto support = developed.sensor_support.view();
+    near(support.at(8, 28).minimum, -4.f / 959);
+    near(support.at(8, 28).maximum, -4.f / 959);
+    near(support.at(28, 28).minimum, 60.f / 959);
+    near(support.at(28, 28).maximum, 240.f / 959);
+    near(support.at(52, 28).maximum, 836.f / 959);
+    near(support.at(54, 28).maximum, 1);
+    near(support.at(60, 28).minimum, 1);
+  }
+  std::vector<p::raw_frame_metadata> metadata(context.frames().begin(), context.frames().end());
+  for (int kind = 0; kind < 3; ++kind) {
+    auto changed = metadata;
+    if (kind == 0)
+      changed[0].iso *= 2;
+    if (kind == 1)
+      changed[0].aperture *= 2;
+    if (kind == 2)
+      changed[0].shutter_seconds = metadata[1].shutter_seconds / 131072;
+    check(!p::prepare_raw_sequence(changed, options),
+          "AEB still rejects ISO/aperture mismatch and extreme normalization");
+  }
+  for (auto &m : metadata)
+    m.shutter_seconds = .01;
+  auto fixed = take(p::prepare_raw_sequence(metadata));
+  auto bracket = take(p::prepare_raw_sequence(metadata, options));
+  check(fixed.fingerprint() != bracket.fingerprint(),
+        "exposure policy belongs to context identity");
+  metadata[0].shutter_seconds *= 1 + 5e-7;
+  fixed = take(p::prepare_raw_sequence(metadata));
+  near(fixed.exposure_scale(0), 1, 0);
+  for (unsigned orientation : {3, 6, 8}) {
+    const auto path =
+        (temp.path / ("support-" + std::to_string(orientation) + ".dng")).string();
+    write_dng(path, {.5, 1, .25}, 64, .01, orientation);
+    auto oriented_context = take(p::prepare_raw_sequence(std::vector<std::string>{path}));
+    auto oriented =
+        take(p::decode_raw_frame(path, oriented_context, 0, {.sensor_support = true}));
+    auto native = take(p::decode_raw_frame(paths[1], context, 1, {.sensor_support = true}));
+    const auto flip = oriented_context.reference().orientation;
+    for (std::size_t y = 0; y < 64; ++y)
+      for (std::size_t x = 0; x < 64; ++x) {
+        std::size_t ox = flip & 1 ? 63 - x : x, oy = flip & 2 ? 63 - y : y;
+        if (flip & 4)
+          std::swap(ox, oy);
+        const auto a = native.sensor_support.view().at(x, y),
+                   b = oriented.sensor_support.view().at(ox, oy);
+        near(a.minimum, b.minimum, 0);
+        near(a.maximum, b.maximum, 0);
+      }
+  }
+}
+
 void real_raw_fixtures(const fs::path &root) {
   for (const auto *relative :
        {"rawpixls/6585-eos-r8-raw.CR3", "rawpixls/6587-eos-r8-craw.CR3"}) {
@@ -307,8 +387,17 @@ void real_raw_fixtures(const fs::path &root) {
     auto context = take(p::prepare_raw_sequence(std::vector<std::string>{path}));
     check(context.reference().camera == "Canon EOS R8",
           "R8 fixture must actually identify the target camera");
-    auto decoded = take(p::decode_raw_frame(path, context, 0));
+    auto decoded = take(p::decode_raw_frame(path, context, 0, {.sensor_support = true}));
     const auto size = decoded.image.pixels.size();
+    check(decoded.sensor_support.size().width == size.width &&
+              decoded.sensor_support.size().height == size.height,
+          "real R8 sensor support must match oriented RGB geometry");
+    for (std::size_t y = 0; y < size.height; y += 17)
+      for (std::size_t x = 0; x < size.width; x += 17) {
+        const auto p = decoded.sensor_support.view().at(x, y);
+        check(std::isfinite(p.minimum) && std::isfinite(p.maximum) && p.minimum <= p.maximum,
+              "full-resolution RAW/CRAW sensor support must remain finite and ordered");
+      }
     check(size.width * size.height > 23000000 && size.width * size.height < 25000000,
           "R8 full-resolution fixture geometry");
     std::cout << relative << ": " << size.width << 'x' << size.height
@@ -349,6 +438,7 @@ void real_raw_fixtures(const fs::path &root) {
 void raw_sequence_tests() {
   color_and_storage();
   context_and_development();
+  shutter_bracket_contract();
   if (const auto *root = std::getenv("PHOTO_OPS_RAW_FIXTURES"))
     real_raw_fixtures(root);
 }

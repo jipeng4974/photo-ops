@@ -57,7 +57,8 @@ bool same_size(extent a, extent b) {
   return a.width == b.width && a.height == b.height;
 }
 
-bool compatible(const raw_frame_metadata &a, const raw_frame_metadata &b) {
+bool compatible(const raw_frame_metadata &a, const raw_frame_metadata &b,
+                bool shutter_bracket = false) {
   const auto near = [](double x, double y) {
     return std::abs(x - y) <= 1e-6 * std::max(std::abs(x), std::abs(y));
   };
@@ -68,7 +69,8 @@ bool compatible(const raw_frame_metadata &a, const raw_frame_metadata &b) {
          a.top == b.top && a.orientation == b.orientation && a.nominal_bits == b.nominal_bits &&
          a.cfa == b.cfa && a.black == b.black && a.white == b.white &&
          a.camera_to_xyz == b.camera_to_xyz && near(a.iso, b.iso) &&
-         near(a.shutter_seconds, b.shutter_seconds) && near(a.aperture, b.aperture);
+         (shutter_bracket || near(a.shutter_seconds, b.shutter_seconds)) &&
+         near(a.aperture, b.aperture);
 }
 
 result<void> validate(const raw_frame_metadata &m) {
@@ -254,15 +256,24 @@ result<raw_sequence_context> prepare_raw_sequence(std::span<const raw_frame_meta
   if (options.memory_budget_mib < 512 || options.memory_budget_mib > 1024 * 1024)
     return fail(error_code::invalid_argument, "RAW memory budget",
                 "budget must be 512..1048576 MiB");
+  if (options.exposure_policy != raw_exposure_policy::fixed &&
+      options.exposure_policy != raw_exposure_policy::shutter_bracket)
+    return fail(error_code::invalid_argument, "RAW context", "unknown exposure policy");
   for (const auto &m : frames) {
     if (m.decode_reserve_bytes > options.memory_budget_mib * mib * 4 / 5)
       return fail(error_code::invalid_argument, "focus memory budget",
                   "RAW decode reserve exceeds budget", m.path);
     if (auto valid = validate(m); !valid)
       return std::unexpected(valid.error());
-    if (!compatible(ref, m))
+    if (!compatible(ref, m, options.exposure_policy == raw_exposure_policy::shutter_bracket))
       return fail(error_code::invalid_argument, "RAW context",
                   "camera/mode/geometry/black/white/color/exposure mismatch", m.path);
+  }
+  for (const auto &m : frames) {
+    const double gain = ref.shutter_seconds / m.shutter_seconds;
+    if (!std::isfinite(gain) || gain < 1. / 65536 || gain > 65536)
+      return fail(error_code::invalid_argument, "RAW context",
+                  "shutter normalization exceeds 16 EV from reference", m.path);
   }
   auto wb = options.white_balance;
   if (std::ranges::all_of(wb, [](double v) { return v == 0; }))
@@ -280,7 +291,9 @@ result<raw_sequence_context> prepare_raw_sequence(std::span<const raw_frame_meta
   fingerprint hash;
   std::ostringstream canonical;
   canonical.imbue(std::locale::classic());
-  canonical << "photo-ops-raw-float-ha-v1;Rec2020-D65;" << reference << ';' << std::hexfloat;
+  canonical << "photo-ops-raw-float-ha-v2;Rec2020-D65;"
+            << static_cast<int>(options.exposure_policy) << ';' << reference << ';'
+            << std::hexfloat;
   for (auto v : wb)
     canonical << v << ';';
   for (const auto &m : frames) {
@@ -300,7 +313,8 @@ result<raw_sequence_context> prepare_raw_sequence(std::span<const raw_frame_meta
   }
   hash.add(canonical.str());
   return raw_sequence_context(std::vector<raw_frame_metadata>(frames.begin(), frames.end()),
-                              reference, wb, hash.hex());
+                              reference, wb, hash.hex(), options.exposure_policy,
+                              options.memory_budget_mib);
 }
 
 result<raw_sequence_context> prepare_raw_sequence(std::span<const std::string> paths,
@@ -319,11 +333,18 @@ result<raw_sequence_context> prepare_raw_sequence(std::span<const std::string> p
 
 result<developed_raw_frame> decode_raw_frame(const std::string &path,
                                              const raw_sequence_context &context,
-                                             std::size_t frame_index) {
+                                             std::size_t frame_index,
+                                             raw_decode_options options) {
   if (frame_index >= context.frames().size() || path != context.frames()[frame_index].path)
     return fail(error_code::invalid_argument, "RAW context",
                 "input is not the indexed context member", path);
   const auto &expected = context.frames()[frame_index];
+  const auto support_bytes = options.sensor_support ? 8 * expected.output_dimensions.width *
+                                                          expected.output_dimensions.height
+                                                    : 0;
+  if (expected.decode_reserve_bytes + support_bytes > context.memory_budget_mib() * mib * 4 / 5)
+    return fail(error_code::invalid_argument, "RAW memory budget",
+                "sensor-support decode reserve exceeds context budget", path);
   auto identity = file_fingerprint(path);
   if (!identity)
     return std::unexpected(identity.error());
@@ -354,6 +375,7 @@ result<developed_raw_frame> decode_raw_frame(const std::string &path,
   const auto size = ref.active_dimensions;
   const auto cfa = [&](long x, long y) { return ref.cfa[2 * (y & 1) + (x & 1)]; };
   image<gray> mosaic(size), green(size);
+  image<raw_sensor_range> sensor_native(options.sensor_support ? size : extent{});
   auto mosaic_view = mosaic.view(), green_view = green.view();
   const auto mosaic_pixels = mosaic_view.storage(), green_pixels = green_view.storage();
   const auto mosaic_stride = mosaic_view.stride(), green_stride = green_view.stride();
@@ -368,6 +390,10 @@ result<developed_raw_frame> decode_raw_frame(const std::string &path,
       const auto c = cfa(x, y);
       const double raw = samples[(y + ref.top) * pitch + x + ref.left];
       saturated += raw >= ref.white[c];
+      if (options.sensor_support) {
+        const float signal = (raw - ref.black[c]) / (ref.white[c] - ref.black[c]);
+        sensor_native.view().at(x, y) = {signal, signal};
+      }
       mosaic_pixels[y * mosaic_stride + x].value =
           (raw - ref.black[c]) / (ref.white[c] - ref.black[c]) * white_balance[c];
     }
@@ -403,6 +429,46 @@ result<developed_raw_frame> decode_raw_frame(const std::string &path,
     return mosaic_pixels[y * mosaic_stride + x].value -
            green_pixels[y * green_stride + x].value;
   };
+  image<raw_sensor_range> sensor_support;
+  if (options.sensor_support) {
+    // Separable support extrema. Release each temporary before the RGB output allocation:
+    // relative to ordinary development the peak grows by at most 8*output_pixels bytes.
+    image<raw_sensor_range> horizontal(size);
+    auto source = sensor_native.view(), middle = horizontal.view();
+    for (long y = 0; y < static_cast<long>(size.height); ++y) {
+      const auto input = source.row(y);
+      auto row = middle.row(y);
+      for (long x = 0; x < static_cast<long>(size.width); ++x) {
+        raw_sensor_range value{std::numeric_limits<float>::infinity(),
+                               -std::numeric_limits<float>::infinity()};
+        for (int k = -3; k <= 3; ++k) {
+          const auto p = input[reflect(x + k, size.width)];
+          value.minimum = std::min(value.minimum, p.minimum);
+          value.maximum = std::max(value.maximum, p.maximum);
+        }
+        row[x] = value;
+      }
+    }
+    sensor_native = {};
+    sensor_support = image<raw_sensor_range>(ref.output_dimensions);
+    auto result = sensor_support.view();
+    for (long y = 0; y < static_cast<long>(size.height); ++y)
+      for (long x = 0; x < static_cast<long>(size.width); ++x) {
+        raw_sensor_range value{std::numeric_limits<float>::infinity(),
+                               -std::numeric_limits<float>::infinity()};
+        for (int k = -3; k <= 3; ++k) {
+          const auto p = middle.at(x, reflect(y + k, size.height));
+          value.minimum = std::min(value.minimum, p.minimum);
+          value.maximum = std::max(value.maximum, p.maximum);
+        }
+        std::size_t ox = ref.orientation & 1 ? size.width - 1 - x : x;
+        std::size_t oy = ref.orientation & 2 ? size.height - 1 - y : y;
+        if (ref.orientation & 4)
+          std::swap(ox, oy);
+        result.at(ox, oy) = value;
+      }
+  }
+  const double exposure_scale = context.exposure_scale(frame_index);
   image<rgb_f32> output(ref.output_dimensions);
   auto output_view = output.view();
   const auto output_pixels = output_view.storage();
@@ -429,7 +495,12 @@ result<developed_raw_frame> decode_raw_frame(const std::string &path,
           static_cast<float>(m[0] * camera[0] + m[1] * camera[1] + m[2] * camera[2]),
           static_cast<float>(m[3] * camera[0] + m[4] * camera[1] + m[5] * camera[2]),
           static_cast<float>(m[6] * camera[0] + m[7] * camera[1] + m[8] * camera[2])};
-      const auto pixel = from_xyz(xyz, encoding);
+      auto pixel = from_xyz(xyz, encoding);
+      if (exposure_scale != 1) {
+        pixel.r *= exposure_scale;
+        pixel.g *= exposure_scale;
+        pixel.b *= exposure_scale;
+      }
       if (!std::isfinite(pixel.r) || !std::isfinite(pixel.g) || !std::isfinite(pixel.b))
         return fail(error_code::color, "RAW float development", "non-finite camera conversion",
                     path);
@@ -445,6 +516,7 @@ result<developed_raw_frame> decode_raw_frame(const std::string &path,
   const double count = size.width * size.height;
   statistics.saturated_fraction = saturated / count;
   statistics.negative_fraction = negatives / count;
-  return developed_raw_frame{working_image(std::move(output), context.encoding()), statistics};
+  return developed_raw_frame{working_image(std::move(output), context.encoding()), statistics,
+                             std::move(sensor_support)};
 }
 } // namespace photo_ops

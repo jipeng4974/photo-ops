@@ -34,10 +34,14 @@ struct raw_frame_metadata {
   std::size_t file_bytes = 0, decode_reserve_bytes = 0;
 };
 
+/// Fixed exposure for focus brackets; shutter-only AEB is an explicit radiometric contract.
+enum class raw_exposure_policy { fixed, shutter_bracket };
+
 struct raw_sequence_options {
   std::size_t reference_index = static_cast<std::size_t>(-1);
   std::array<double, 4> white_balance{}; // All zero: use reference camera WB, normalized to G1.
   std::size_t memory_budget_mib = 2048;
+  raw_exposure_policy exposure_policy = raw_exposure_policy::fixed;
 };
 
 /// Frozen small calibration/manifest value. Pixels are decoded sequentially elsewhere.
@@ -63,6 +67,21 @@ public:
     return encoding_;
   }
 
+  inline raw_exposure_policy exposure_policy() const noexcept {
+    return exposure_policy_;
+  }
+
+  inline double exposure_scale(std::size_t frame) const {
+    contract_assert(frame < frames_.size());
+    return exposure_policy_ == raw_exposure_policy::fixed
+               ? 1.
+               : reference().shutter_seconds / frames_[frame].shutter_seconds;
+  }
+
+  inline std::size_t memory_budget_mib() const noexcept {
+    return memory_budget_mib_;
+  }
+
   inline const std::string &fingerprint() const noexcept {
     return encoding_.normalization;
   }
@@ -72,12 +91,16 @@ private:
   std::size_t reference_;
   std::array<double, 4> wb_;
   color_encoding encoding_;
+  raw_exposure_policy exposure_policy_;
+  std::size_t memory_budget_mib_;
 
   raw_sequence_context(std::vector<raw_frame_metadata> frames, std::size_t reference,
-                       std::array<double, 4> wb, std::string fingerprint)
+                       std::array<double, 4> wb, std::string fingerprint,
+                       raw_exposure_policy policy, std::size_t budget_mib)
       : frames_(std::move(frames)), reference_(reference), wb_(wb),
         encoding_{rgb_primaries::rec2020, white_point::d65, transfer_function::linear,
-                  image_origin::scene_linear_raw, std::move(fingerprint)} {
+                  image_origin::scene_linear_raw, std::move(fingerprint)},
+        exposure_policy_(policy), memory_budget_mib_(budget_mib) {
   }
 
   friend result<raw_sequence_context> prepare_raw_sequence(std::span<const raw_frame_metadata>,
@@ -98,9 +121,23 @@ struct raw_frame_statistics {
   float minimum = 0, maximum = 0;
 };
 
+/// Unscaled, pre-WB (raw-black)/(white-black) extrema over the demosaic's 7x7 support.
+/// A saturated contributing CFA sample invalidates the complete developed RGB measurement.
+struct raw_sensor_range {
+  float minimum = 0, maximum = 0;
+};
+
+static_assert(sizeof(raw_sensor_range) == 8);
+
+struct raw_decode_options {
+  bool sensor_support = false; // Optional 8-byte/pixel measurement map, budgeted before unpack.
+};
+
 struct developed_raw_frame {
   working_image image;
   raw_frame_statistics statistics;
+  photo_ops::image<raw_sensor_range>
+      sensor_support; // Empty unless requested; output orientation.
 };
 
 /// Sensor-native float normalization and directional Bayer demosaic, then camera→XYZ→2020.
@@ -108,5 +145,6 @@ struct developed_raw_frame {
 /// No dcraw_process(), auto WB, auto brightness, integer RGB intermediate or gamut clipping.
 result<developed_raw_frame> decode_raw_frame(const std::string &path,
                                              const raw_sequence_context &context,
-                                             std::size_t frame_index);
+                                             std::size_t frame_index,
+                                             raw_decode_options options = {});
 } // namespace photo_ops

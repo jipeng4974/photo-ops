@@ -1,6 +1,6 @@
 # TODO2：HDR 与 focus × exposure 二维合成
 
-> **状态：计划中，尚未实现。** 本文记录 `photo-ops` 的第二阶段能力规划，不代表当前 CLI / C++ API 已提供这些功能。
+> **状态：分阶段实施中。** v1.6 已提供 shutter-only RAW context 与 sensor-support 基础；HDR operator 与二维合成仍在实现。本页各项以末尾实施记录为准。
 
 本文考虑两个相关但不同的目标：
 
@@ -267,3 +267,12 @@ merge_hdr(...)
 ```
 
 二维 matrix 不需要再暴露 `exposure_align()`、`radiance_fuse()` 等公共阶段；优先扩展 `stack_focus(...)` 的 grouped input model / CLI manifest。若最终需要新的 public operation 名称，应在实现前同步更新 `AGENTS.md` 的 photographic API surface，而不是仅因为内部算法变复杂就扩张 API。
+
+## 实施记录（2026-10-26）
+
+- **v1.6.0 / RAW 基础**：显式 `shutter_bracket` policy 冻结 WB／calibration，按 metadata
+  归一共享 exposure scale；opt-in pre-WB sensor-support extrema 覆盖完整 demosaic
+  footprint，并在 unpack 前计入预算。fixed focus bracket 的曝光拒绝契约继续保留。
+  细节与回归见 [RAW pipeline](raw-pipeline.md)。
+- 下一阶段：standalone `merge_hdr`、数值 radiance／deghost fixtures 与诊断；随后才接
+  显式 matrix／HDR-first focus fusion。真实 R8 AEB／2×3 专项素材仍待采集。
