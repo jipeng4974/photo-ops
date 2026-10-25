@@ -1,10 +1,51 @@
 # v0.2 RAW 工作色彩与序列契约
 
 本文约束 `photo_ops.focus_stack` 的 RAW bracket 接入。
-目前先实现已统一开发的 rendered TIFF/JPEG 合成，不经过 RAW decoder；这不放宽
-以下 RAW float/context 门槛。**wide-gamut float 开发与
-`raw_sequence_context` 尚未实现**；当前 `decode_raw` 仍为单帧 LibRaw 16-bit
-linear-sRGB 兼容路径，不应作为 focus bracket 的开发接口。
+v1.2 已接入支持范围内的 Bayer CR3 / DNG float 路径与 immutable context。
+`decode_raw` / `convert` / `sunlight-enhance` 仍保留单帧 LibRaw 16-bit linear-sRGB
+兼容路线；它们与新的 `decode_raw_frame(path, context, index)` 明确分开。
+
+## v1.2 实现与边界
+
+- `rgb_f32` 只表示存储，`working_image` 必须携带 `color_encoding`：primaries、
+  D65、linear transfer、scene/rendered origin 与 normalization provenance。
+  旧 `linear_rgb` 的 sRGB 语义没有变化；focus-stack 内部使用前者加显式 encoding。
+- metadata 预检需要顺序 `open_file` + `unpack`，因为实测 Canon R5 II 的 black
+  在 unpack 后才从 0 变成 2048；每次释放 mosaic，绝不同时持有整组像素。
+  unpack 前先按 raw geometry / 文件大小验证保守预算，受检后才允许解包。
+- 首版只支持 square-pixel、regular 2×2 RGB Bayer、integer sensor mosaic、
+  scalar + per-channel black、三通道 daylight characterization。X-Trans、空间
+  black 模型、已应用 WB、四通道颜色矩阵等明确拒绝，不退回 16-bit development。
+- 开发直接读取 LibRaw **未调用 `dcraw_process()` 的 raw sensor samples**，float
+  扣 black，以共享 `(white-black)` 分母归一，应用归一到 G1 的共享 WB 一次。
+  采用 native float directional green interpolation，再插值 R/G、B/G 色差。
+  这是为避免 integer demosaic 的裁剪而实现的窄 Bayer adapter；不宣称等同于 AHD
+  或已解决所有 demosaic zipper / false color。边界 mirror 保持 CFA phase。
+- 颜色使用 LibRaw `rgb_cam`（WB-balanced camera→linear sRGB）与 sRGB→XYZ
+  矩阵组合成 camera→XYZ/D65，再转 Rec.2020。`cam_xyz` 虽然字段名易误解，实际为
+  DNG 风格反方向 matrix，不能直接当 camera→XYZ。采用固定 daylight 表征与
+  sensor diagonal WB，当前没有双 illuminant profile 插值或额外重复 CAT/WB。
+  参见 [LibRaw 维护者说明](https://www.libraw.org/node/2099) 与
+  [矩阵构造源码](https://github.com/LibRaw/LibRaw/blob/0.22.0/src/utils/utils_dcraw.cpp)。
+- context 固定 reference、WB、black/white、geometry/CFA/orientation、exposure、
+  camera characterization、decoder/算法版本与有序输入身份。ISO、shutter、aperture
+  只容许 1e-6 相对 metadata 浮点误差；black/white/矩阵严格匹配。WB metadata 差异
+  可报告，开发一律用共享 reference gains。支持 API 显式 WB；CLI 默认 camera WB。
+- context fingerprint 和逐输入身份使用明确标记的 FNV-1a 64-bit 内容摘要，供本次
+  private spool 的 provenance / 变化检测，**不是加密摘要或跨运行 cache**；fixture
+  manifest 仍使用 SHA-256。unpack 前后校验输入身份，不复用过期 scratch。
+- RAW 输出为 **float32 linear Rec.2020 ICC TIFF**，保留负值和 >1 headroom；
+  `write_working_tiff_rows` / `read_working_tiff` 要求编码和 provenance，并校验 ICC
+  与声明的 primaries / linear transfer 一致。旧 reader/writer 拒绝误解释这些样本。
+  没有把 Rec.2020 送进旧 EXR writer；新的 wide-gamut EXR 输出仍未加入。
+- TIFF/JPEG 输入仍为 rendered linear-sRGB，输出沿用 16-bit sRGB ICC TIFF。
+  混合 RAW/rendered、混用 camera/mode/exposure 均失败。diagnostics 包括冻结上下文、
+  每帧原始 WB metadata、sensor saturation fraction、signed range 与负值比例；
+  before/after JPEG 只是显式转到 sRGB 并裁剪的 preview，不回流 fusion。
+
+以下保留完整设计契约；当前仅实现上述明确范围，真实自摄 R8 brackets 的验收仍待
+[data preparation](data_prep.md) 所述拍摄素材。已下载的 R8 RAW/CRAW 是 CC0 单张，
+可验证 decoder 与重复输入性能，不能替代 focus bracket / 风景遮挡验收。
 
 ## 工作色彩不再由三个 float 的布局隐含决定
 
@@ -35,10 +76,10 @@ Rec.2020 primaries / D65 是第一条 wide-gamut working 路线，不是 PQ、HL
 Rec.709 luminance / sRGB↔OKLab 函数。迁移时使用 project-owned `rgb_f32`
 存储加必需的 `color_encoding`（primaries、white point、transfer、scene/rendered
 来源、normalization provenance），组成 `working_image` / 对应借用 view。
-`image<Pixel>` 继续只负责布局与所有权。future wide-gamut focus_stack 公共接口必须携带
+`image<Pixel>` 继续只负责布局与所有权。wide-gamut focus_stack 公共接口必须携带
 这个 encoding 或约束到明确的 working 类型；不允许裸 RGB 猜色彩空间。
-这些是设计中的类型名；当前 rendered focus_stack 接口显式限制为已有
-linear-sRGB/D65 类型，不能塞入 Rec.2020 样本。
+这些类型已在 v1.2 落地；旧 linear-sRGB API 继续拒绝误标 Rec.2020，focus-stack 通过
+带 encoding 的 working_image 路径处理 wide-gamut。
 
 - 亮度使用该 working RGB→XYZ 矩阵的 Y 行，不能复用 Rec.709 系数。
 - OKLab 经显式 working→XYZ D65→OKLab 转换；不得先裁到 sRGB。
@@ -93,3 +134,24 @@ metadata 错误与不兼容返回 typed error；不应触发 contracts。
    decoder/算法版本、encoding 与参数。过期缓存拒绝，不仅按文件名复用。
 5. 再接 focus-stack 的真实序列；当前 `convert` / `sunlight-enhance` 的旧路径
    可以继续用，但不得冒充新路线已经实现。
+
+## v1.2 验证记录（2026-10-25）
+
+- debug + EXR + ASan/UBSan clean build 与全部 C++ 回归通过；release / EXR 关闭
+  clean build、C++ 回归及 opt-in 真实 RAW 回归通过；Python 12 项通过（1 项 opt-in
+  sunlight 跳过）。module consumer 检查同步新增 raw 依赖，继续验证内部 registration
+  helpers 不 export 和 expected 的 discard 诊断。
+- generated Bayer DNG：共享 WB 使不同 camera-WB metadata 的相同 sensor samples
+  得到完全相同像素；black/white、camera/color/exposure mismatch、篡改输入与错误
+  context index 拒绝；3/6/8 orientation 与 native 图逐像素一致。neutral reference
+  等于已知 `(304-64)/(1023-64)`，避免重复 WB / black / normalization。
+- Rec.2020 白点、signed/HDR XYZ 与 OKLab 往返、float32 TIFF 精确往返、ICC
+  声明矛盾、stream callback failure 和 no-overwrite 回归通过。
+- 真实 R8 RAW / CRAW 单张的 opt-in 解码通过；真实 Canon R5 II 三个相邻 focus
+  frames 的全局色度一致性检查通过。这些测试不等同于用户自摄 R8 bracket 验收。
+- 三帧 5118×3412 Canon CR3 完成 full-resolution 合成：wall 485.63 s、peak child
+  RSS 523708 KiB，预算估计 1307332692 bytes，scratch estimate 1037332632 bytes。
+  最终 float TIFF 范围约 `[-0.00483, 1.47979]`，未做 gamut clipping。运行有同机
+  build/test 负载，属于 correctness / resource 基线，非独占性能比较。
+- 该三帧是很长 macro stack 的连续前缀；目视检查只有极小焦平面片段，不能声称
+  已恢复整个场景景深。性能、defocus boundary 与风景素材验收继续分别推进。

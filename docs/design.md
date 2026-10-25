@@ -22,8 +22,8 @@ export 它，也不只为了测试而扩大公开边界。现有两个函数不�
 
 - [RAW working pipeline 与 raw_sequence_context](raw-pipeline.md)：明确 camera-linear
   float → XYZ → linear Rec.2020/D65，保留负值／高光；先冻结整组 WB、black 与
-  normalization，禁止逐帧自动开发。RAW 新路线仍待实现，不把现有 sRGB 视为永久 ABI。
-  rendered-only 的 focus_stack 已可独立验证核心；该例外不放宽 RAW bracket 的门槛。
+  normalization，禁止逐帧自动开发。v1.2 已实现支持的 Bayer float/context 路径，不把旧 sRGB 视为永久 ABI；
+  具体传感器／颜色表征限制见该文，不放宽 RAW bracket 的一致性门槛。
 - [focus-stack 内存预算](focus-stack.md)：registration proxy + sequential decode/spool
   + tiled full-res fusion；单帧 decoder 峰值、halo、maps、scratch 与输出都计入预算。
 - 输出现已使用同目录 temporary + atomic no-replace publish；每个文件独立完成，
@@ -47,7 +47,7 @@ CLI 提供 `inspect` / `convert` 和首版 `sunlight-enhance`；后者的实际�
 诊断见 [MVP 实现记录](sunlight-enhance.md)。v0.3.1 增加暗 RAW 的相对色度响应、
 近中性亮材质／弱照明证据的保守 abstention，以及真实效果测量与局部对照。下文的完整 sunlight 设计仍包含未来改进，
 `photo_ops.focus_stack` 已实现 rendered TIFF/JPEG 序列的配准、coherent selection、
-运动 fallback 与 tiled multiband fusion；尚不接入 RAW bracket。实现边界与验收见
+运动 fallback 与 tiled multiband fusion；v1.2 接入共享 context 的 Bayer RAW bracket。实现边界与验收见
 [focus-stack](focus-stack.md)。配准只服务本算子，暂不拆独立 registration/focus 模块。
 
 `photo-ops` is a personal, programmatic landscape-photography toolkit.

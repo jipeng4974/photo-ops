@@ -125,9 +125,8 @@ photo::result<arguments> parse_arguments(std::span<char *> tokens) {
     return photo::fail(photo::error_code::invalid_argument, "parse arguments",
                        "focus-stack options require focus-stack");
   if (parsed.command == "focus-stack" && (parsed.inputs.size() < 2 || parsed.half_size))
-    return photo::fail(
-        photo::error_code::invalid_argument, "parse arguments",
-        "focus-stack requires at least two developed frames; --half-size is RAW-only");
+    return photo::fail(photo::error_code::invalid_argument, "parse arguments",
+                       "focus-stack requires at least two frames; --half-size is RAW-only");
 
   if (!parsed.output.empty()) {
     auto encoding = output_encoding(parsed.output);
@@ -164,6 +163,15 @@ photo::result<void> run(const arguments &options) {
               << "\nestimated_peak_bytes: " << stacked->estimated_peak_bytes
               << "\nmotion_fraction: " << stacked->motion_fraction
               << "\nlow_confidence_fraction: " << stacked->low_confidence_fraction << '\n';
+    std::cout << "working_space: "
+              << (stacked->raw_context ? "scene-linear Rec.2020/D65"
+                                       : "rendered linear sRGB/D65")
+              << "\noutput_encoding: "
+              << (stacked->raw_context ? "float32 linear ICC TIFF (signed/HDR retained)"
+                                       : "16-bit sRGB ICC TIFF")
+              << '\n';
+    if (stacked->raw_context)
+      std::cout << "raw_context: " << stacked->raw_context->fingerprint() << '\n';
     return {};
   }
   auto decoded = photo::read_image(options.input, options.half_size);
@@ -208,7 +216,8 @@ void print_help() {
          "                      [--aligned] [--reference INDEX] [--diagnostics DIRECTORY]\n"
          "                      [--memory-budget-mib 2048] [--scratch-directory DIRECTORY]\n"
          "                      [--tile-size 256] [--proxy-long-edge 1024]\n"
-         "Focus stacking: consistently developed TIFF/JPEG -> 16-bit TIFF; RAW pending.\n"
+         "Focus stacking: compatible CR3/Bayer DNG -> float32 linear Rec.2020 ICC TIFF.\n"
+         "               Consistently developed TIFF/JPEG -> 16-bit sRGB TIFF.\n"
          "Other inputs: CR3, RGB TIFF, JPEG. Outputs: 16-bit TIFF, EXR, JPEG.\n"
          "EXR enabled: "
       << (photo::exr_available() ? "yes" : "no") << '\n';

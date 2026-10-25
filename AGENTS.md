@@ -150,9 +150,9 @@ photo_ops.diagnostics
 
 Keep registration and fusion together in `photo_ops.focus_stack`; registration
 currently serves focus stacking alone. Split out a reusable registration module
-only when an actual second consumer justifies it. The initial implementation
-accepts consistently developed rendered TIFF/JPEG sequences; RAW brackets remain
-gated on the float/context pipeline, without a fallback to per-frame development.
+only when an actual second consumer justifies it. The implementation accepts consistently developed rendered TIFF/JPEG sequences
+and supported Bayer RAW brackets through the signed float/shared-context pipeline.
+Never fall back to independent per-frame RAW development.
 
 Exact partitioning should follow implementation needs; do not create tiny modules for every file.
 

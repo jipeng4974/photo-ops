@@ -19,7 +19,7 @@ class ResultUsage(unittest.TestCase):
         cls.compiler = shlex.split(os.environ.get('CXX', 'g++'))
         cls.flags = ['-std=c++26', '-fmodules', '-fcontracts',
                      '-fcontract-evaluation-semantic=quick_enforce']
-        for module in ('core/error', 'image/image', 'color/color', 'image/pyramid',
+        for module in ('core/error', 'image/image', 'color/color', 'image/pyramid', 'io/raw',
                        'focus_stack/focus_stack'):
             result = subprocess.run(
                 [*cls.compiler, *cls.flags, '-x', 'c++', '-c',
@@ -65,11 +65,12 @@ void consume() {
         self.assertEqual(result.returncode, 0, result.stderr)
 
     def test_registration_helpers_are_not_exported(self):
-        for name in ('p::align_focus_stack', 'p::detail::align_focus_stack'):
+        for name in ('p::align_focus_stack', 'p::detail::align_focus_stack',
+                     'p::refine_focus_stack', 'p::detail::refine_focus_stack'):
             with self.subTest(name=name):
                 result = self.compile_body(f'(void){name}({{}}, {{}});')
                 self.assertNotEqual(result.returncode, 0)
-                self.assertIn('align_focus_stack', result.stderr)
+                self.assertIn(name.split('::')[-1], result.stderr)
                 self.assertRegex(result.stderr, r'not a member|not been declared|not declared')
 
     def test_ordinary_image_and_math_results_can_be_discarded(self):
@@ -90,6 +91,11 @@ void consume() {
   p::luminance({0.1f, 0.2f, 0.3f});
   p::to_oklab({0.1f, 0.2f, 0.3f});
   p::from_oklab({0.5f, 0.1f, 0.1f});
+  p::color_encoding encoding{p::rgb_primaries::rec2020};
+  p::rgb_f32 rgb{0.1f, 0.2f, 0.3f};
+  p::to_xyz(rgb, encoding);
+  p::luminance(rgb, encoding);
+  p::to_oklab(rgb, encoding);
   p::luminance_image(image.view());
   p::image<p::gray> gray({4, 4});
   p::downsample(gray.view());

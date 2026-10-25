@@ -1,0 +1,44 @@
+{
+  "source": "https://raw.pixls.us/json/getrepository.php",
+  "retrieved": "2026-10-25",
+  "samples": [
+    {
+      "id": 6585,
+      "camera": "Canon EOS R8",
+      "mode": "RAW Full Frame",
+      "license": "CC0-1.0",
+      "license_url": "https://creativecommons.org/publicdomain/zero/1.0/",
+      "published": "2023-05-20",
+      "repository_row": [
+        "Canon",
+        "EOS R8",
+        "3:2",
+        24,
+        "RAW Full Frame",
+        "<a href='https://creativecommons.org/publicdomain/zero/1.0/' title='Creative Commons 0 - Public Domain' class='cc'>co</a>",
+        "2023-05-20",
+        "<a href='https://raw.pixls.us/getfile.php/6585/nice/Canon - EOS R8 - 3:2.CR3'>Canon - EOS R8 - 3:2.CR3</a><div class='checksumdata'><span title='sha256 Checksum'>7d5c6dbb11ff7e6ee58715d90a20f5d801e8b103f4711ff6ea329ceafcef254c</span>&nbsp;(27.45MB)</div>",
+        "<a target='_blank' href='https://raw.pixls.us/getfile.php/6585/exif/RAW_FULL_FRAME.CR3.exif.txt'>exifdata</a>"
+      ]
+    },
+    {
+      "id": 6587,
+      "camera": "Canon EOS R8",
+      "mode": "CRAW Full Frame",
+      "license": "CC0-1.0",
+      "license_url": "https://creativecommons.org/publicdomain/zero/1.0/",
+      "published": "2023-05-20",
+      "repository_row": [
+        "Canon",
+        "EOS R8",
+        "3:2",
+        24,
+        "CRAW Full Frame",
+        "<a href='https://creativecommons.org/publicdomain/zero/1.0/' title='Creative Commons 0 - Public Domain' class='cc'>co</a>",
+        "2023-05-20",
+        "<a href='https://raw.pixls.us/getfile.php/6587/nice/Canon - EOS R8 - 3:2.CR3'>Canon - EOS R8 - 3:2.CR3</a><div class='checksumdata'><span title='sha256 Checksum'>df33cf394573645ce03dea1b2e9f0b5cc2b7734e9e3391ee7114151414cf2812</span>&nbsp;(13.93MB)</div>",
+        "<a target='_blank' href='https://raw.pixls.us/getfile.php/6587/exif/CRAW_FULL_FRAME.CR3.exif.txt'>exifdata</a>"
+      ]
+    }
+  ]
+}

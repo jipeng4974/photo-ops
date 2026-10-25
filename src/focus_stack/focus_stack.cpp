@@ -9,9 +9,12 @@ module;
 #include <expected>
 #include <filesystem>
 #include <fstream>
+#include <iomanip>
 #include <limits>
+#include <locale>
 #include <span>
 #include <string>
+#include <string_view>
 #include <utility>
 #include <vector>
 module photo_ops.focus_stack;
@@ -43,11 +46,11 @@ struct frame {
   focus_stack_alignment alignment;
 };
 
-linear_rgb add(linear_rgb a, linear_rgb b) {
+rgb_f32 add(rgb_f32 a, rgb_f32 b) {
   return {a.r + b.r, a.g + b.g, a.b + b.b};
 }
 
-linear_rgb mul(linear_rgb a, float k) {
+rgb_f32 mul(rgb_f32 a, float k) {
   return {a.r * k, a.g * k, a.b * k};
 }
 
@@ -149,21 +152,21 @@ image<gray> smooth(image_view<const gray> src, int radius) {
   return output;
 }
 
-image<linear_rgb> smooth_color(image_view<const linear_rgb> src, int radius) {
-  image<linear_rgb> horizontal(src.size()), output(src.size());
+image<rgb_f32> smooth_color(image_view<const rgb_f32> src, int radius) {
+  image<rgb_f32> horizontal(src.size()), output(src.size());
   const float scale = 1.f / (2 * radius + 1);
   for (std::size_t y = 0; y < src.size().height; ++y)
     for (std::size_t x = 0; x < src.size().width; ++x) {
-      linear_rgb sum{};
+      rgb_f32 sum{};
       for (int k = -radius; k <= radius; ++k)
         sum = add(sum, clamped(src, static_cast<long>(x) + k, y));
       horizontal.view().at(x, y) = mul(sum, scale);
     }
   for (std::size_t y = 0; y < src.size().height; ++y)
     for (std::size_t x = 0; x < src.size().width; ++x) {
-      linear_rgb sum{};
+      rgb_f32 sum{};
       for (int k = -radius; k <= radius; ++k)
-        sum = add(sum, clamped<linear_rgb>(horizontal.view(), x, static_cast<long>(y) + k));
+        sum = add(sum, clamped<rgb_f32>(horizontal.view(), x, static_cast<long>(y) + k));
       output.view().at(x, y) = mul(sum, scale);
     }
   return output;
@@ -220,7 +223,7 @@ result<image<Pixel>> read_patch(const fs::path &path, extent size, rectangle reg
   return pixels;
 }
 
-result<image<linear_rgb>> warp_patch(const frame &source, extent size, rectangle region) {
+result<image<rgb_f32>> warp_patch(const frame &source, extent size, rectangle region) {
   double minx = size.width - 1, miny = size.height - 1, maxx = 0, maxy = 0;
   for (auto x : {region.x, region.x + region.width - 1})
     for (auto y : {region.y, region.y + region.height - 1}) {
@@ -238,25 +241,25 @@ result<image<linear_rgb>> warp_patch(const frame &source, extent size, rectangle
       static_cast<std::size_t>(std::clamp(std::ceil(maxx) + 1, 1., double(size.width)));
   const auto y1 =
       static_cast<std::size_t>(std::clamp(std::ceil(maxy) + 1, 1., double(size.height)));
-  auto input = read_patch<linear_rgb>(source.pixels, size, {x0, y0, x1 - x0, y1 - y0});
+  auto input = read_patch<rgb_f32>(source.pixels, size, {x0, y0, x1 - x0, y1 - y0});
   if (!input)
     return std::unexpected(input.error());
-  image<linear_rgb> output({region.width, region.height});
+  image<rgb_f32> output({region.width, region.height});
   for (std::size_t y = 0; y < region.height; ++y)
     for (std::size_t x = 0; x < region.width; ++x) {
       const auto p = inverse(source.alignment, region.x + x, region.y + y);
       // Invalid samples replicate locally for filtering, but their weights are forced to zero.
-      output.view().at(x, y) = bilinear<linear_rgb>(input->view(), p[0] - x0, p[1] - y0);
+      output.view().at(x, y) = bilinear<rgb_f32>(input->view(), p[0] - x0, p[1] - y0);
     }
   return output;
 }
 
-image<linear_rgb> proxy(image_view<const linear_rgb> pixels, std::size_t step) {
-  image<linear_rgb> output(
+image<rgb_f32> proxy(image_view<const rgb_f32> pixels, std::size_t step) {
+  image<rgb_f32> output(
       {(pixels.size().width + step - 1) / step, (pixels.size().height + step - 1) / step});
   for (std::size_t y = 0; y < output.size().height; ++y)
     for (std::size_t x = 0; x < output.size().width; ++x) {
-      linear_rgb sum{};
+      rgb_f32 sum{};
       std::size_t count = 0;
       for (std::size_t sy = y * step; sy < std::min((y + 1) * step, pixels.size().height); ++sy)
         for (std::size_t sx = x * step; sx < std::min((x + 1) * step, pixels.size().width);
@@ -276,11 +279,11 @@ struct coherent_maps {
 };
 
 result<coherent_maps> analyze(const std::vector<frame> &frames, extent full, std::size_t step,
-                              std::size_t reference) {
+                              std::size_t reference, const color_encoding &encoding) {
   const extent size{(full.width + step - 1) / step, (full.height + step - 1) / step};
   const auto count = size.width * size.height;
-  auto ref = read_patch<linear_rgb>(frames[reference].pixels.string() + ".color", size,
-                                    {0, 0, size.width, size.height});
+  auto ref = read_patch<rgb_f32>(frames[reference].pixels.string() + ".color", size,
+                                 {0, 0, size.width, size.height});
   if (!ref)
     return std::unexpected(ref.error());
   auto low_ref = smooth_color(ref->view(), 3);
@@ -289,19 +292,19 @@ result<coherent_maps> analyze(const std::vector<frame> &frames, extent full, std
                      image<gray>(size)};
   image<gray> best(size), second(size), missing(size);
   for (std::size_t i = 0; i < frames.size(); ++i) {
-    auto src = read_patch<linear_rgb>(frames[i].pixels.string() + ".color", size,
-                                      {0, 0, size.width, size.height});
+    auto src = read_patch<rgb_f32>(frames[i].pixels.string() + ".color", size,
+                                   {0, 0, size.width, size.height});
     if (!src)
       return std::unexpected(src.error());
     image<gray> warped(size), valid(size);
-    image<linear_rgb> color(size);
+    image<rgb_f32> color(size);
     const double center = (step - 1) * .5;
     for (std::size_t y = 0; y < size.height; ++y)
       for (std::size_t x = 0; x < size.width; ++x) {
         const auto p = inverse(frames[i].alignment, x * step + center, y * step + center);
         color.view().at(x, y) =
-            bilinear<linear_rgb>(src->view(), (p[0] - center) / step, (p[1] - center) / step);
-        warped.view().at(x, y).value = luminance(color.view().at(x, y));
+            bilinear<rgb_f32>(src->view(), (p[0] - center) / step, (p[1] - center) / step);
+        warped.view().at(x, y).value = luminance(color.view().at(x, y), encoding);
         valid.view().at(x, y).value = valid_point(full, p[0], p[1]);
       }
     auto score = focus_score(warped.view());
@@ -382,13 +385,13 @@ result<coherent_maps> analyze(const std::vector<frame> &frames, extent full, std
   return maps;
 }
 
-image<gray> tile_weight(image_view<const linear_rgb> warped, const frame &source, extent full,
+image<gray> tile_weight(image_view<const rgb_f32> warped, const frame &source, extent full,
                         rectangle area, const coherent_maps &maps, std::size_t step,
-                        std::size_t reference, std::size_t i) {
+                        std::size_t reference, std::size_t i, const color_encoding &encoding) {
   image<gray> ymap({area.width, area.height});
   for (std::size_t y = 0; y < area.height; ++y)
     for (std::size_t x = 0; x < area.width; ++x)
-      ymap.view().at(x, y).value = luminance(warped.at(x, y));
+      ymap.view().at(x, y).value = luminance(warped.at(x, y), encoding);
   auto weight = focus_score(ymap.view());
   // Score smoothing gives spatially coherent evidence before multiscale mask blending.
   weight = smooth(weight.view(), 2);
@@ -410,10 +413,10 @@ image<gray> tile_weight(image_view<const linear_rgb> warped, const frame &source
   return weight;
 }
 
-result<image<linear_rgb>> fuse_tile(const std::vector<frame> &frames, extent full,
-                                    rectangle area, const coherent_maps &maps, std::size_t step,
-                                    std::size_t reference) {
-  std::vector<image<linear_rgb>> numerator;
+result<image<rgb_f32>> fuse_tile(const std::vector<frame> &frames, extent full, rectangle area,
+                                 const coherent_maps &maps, std::size_t step,
+                                 std::size_t reference, const color_encoding &encoding) {
+  std::vector<image<rgb_f32>> numerator;
   std::vector<image<gray>> denominator;
   extent level_size{area.width, area.height};
   for (std::size_t l = 0; l < levels; ++l) {
@@ -428,7 +431,8 @@ result<image<linear_rgb>> fuse_tile(const std::vector<frame> &frames, extent ful
     auto warped = warp_patch(frames[i], full, area);
     if (!warped)
       return std::unexpected(warped.error());
-    auto weight = tile_weight(warped->view(), frames[i], full, area, maps, step, reference, i);
+    auto weight =
+        tile_weight(warped->view(), frames[i], full, area, maps, step, reference, i, encoding);
     for (std::size_t y = 0; y < area.height; ++y)
       for (std::size_t x = 0; x < area.width; ++x)
         total.view().at(x, y).value += weight.view().at(x, y).value;
@@ -437,22 +441,23 @@ result<image<linear_rgb>> fuse_tile(const std::vector<frame> &frames, extent ful
     auto warped = warp_patch(frames[i], full, area);
     if (!warped)
       return std::unexpected(warped.error());
-    auto weight = tile_weight(warped->view(), frames[i], full, area, maps, step, reference, i);
+    auto weight =
+        tile_weight(warped->view(), frames[i], full, area, maps, step, reference, i, encoding);
     for (std::size_t y = 0; y < area.height; ++y)
       for (std::size_t x = 0; x < area.width; ++x)
         weight.view().at(x, y).value /= total.view().at(x, y).value;
-    std::vector<image<linear_rgb>> gaussian;
+    std::vector<image<rgb_f32>> gaussian;
     std::vector<image<gray>> weights;
     gaussian.push_back(std::move(*warped));
     weights.push_back(std::move(weight));
     for (std::size_t l = 1; l < levels; ++l) {
-      gaussian.push_back(down<linear_rgb>(gaussian.back().view()));
+      gaussian.push_back(down<rgb_f32>(gaussian.back().view()));
       weights.push_back(down<gray>(weights.back().view()));
     }
     for (std::size_t l = 0; l < levels; ++l) {
-      image<linear_rgb> expanded;
+      image<rgb_f32> expanded;
       if (l + 1 < levels)
-        expanded = expand<linear_rgb>(gaussian[l + 1].view(), gaussian[l].size());
+        expanded = expand<rgb_f32>(gaussian[l + 1].view(), gaussian[l].size());
       for (std::size_t y = 0; y < gaussian[l].size().height; ++y)
         for (std::size_t x = 0; x < gaussian[l].size().width; ++x) {
           auto band = gaussian[l].view().at(x, y);
@@ -475,14 +480,14 @@ result<image<linear_rgb>> fuse_tile(const std::vector<frame> &frames, extent ful
       }
   auto result = std::move(numerator.back());
   for (std::size_t l = levels - 1; l-- > 0;) {
-    auto expanded = expand<linear_rgb>(result.view(), numerator[l].size());
+    auto expanded = expand<rgb_f32>(result.view(), numerator[l].size());
     for (std::size_t y = 0; y < expanded.size().height; ++y)
       for (std::size_t x = 0; x < expanded.size().width; ++x)
         expanded.view().at(x, y) = add(expanded.view().at(x, y), numerator[l].view().at(x, y));
     result = std::move(expanded);
   }
   // Motion fallback is exact in its coherent region, not merely an approximate blend weight.
-  auto ref = read_patch<linear_rgb>(frames[reference].pixels, full, area);
+  auto ref = read_patch<rgb_f32>(frames[reference].pixels, full, area);
   if (!ref)
     return std::unexpected(ref.error());
   for (std::size_t y = 0; y < area.height; ++y)
@@ -500,8 +505,64 @@ result<image<linear_rgb>> fuse_tile(const std::vector<frame> &frames, extent ful
   return result;
 }
 
+std::string json_string(std::string_view value) {
+  std::string out = "\"";
+  constexpr char hex[] = "0123456789abcdef";
+  for (unsigned char c : value) {
+    if (c == '\\' || c == '\"') {
+      out += '\\';
+      out += c;
+    } else if (c < 32) {
+      out += "\\u00";
+      out += hex[c >> 4];
+      out += hex[c & 15];
+    } else
+      out += c;
+  }
+  return out + '\"';
+}
+
+template <class T, std::size_t N>
+void json_array(std::ostream &file, const std::array<T, N> &values) {
+  file << '[';
+  for (std::size_t i = 0; i < N; ++i)
+    file << (i ? "," : "") << values[i];
+  file << ']';
+}
+
+result<image<linear_rgb>> preview_spool(const fs::path &path,
+                                        const focus_stack_report &report) {
+  const auto full = report.dimensions;
+  const auto step = report.proxy_step;
+  const extent size{(full.width + step - 1) / step, (full.height + step - 1) / step};
+  image<linear_rgb> output(size);
+  std::vector<rgb_f32> row(full.width);
+  std::vector<rgb_f32> sums(size.width);
+  std::ifstream file(path, std::ios::binary);
+  if (!file)
+    return fail(error_code::io, "focus preview", "cannot open spool", path.string());
+  for (std::size_t y = 0; y < full.height; ++y) {
+    file.read(reinterpret_cast<char *>(row.data()), row.size() * sizeof(rgb_f32));
+    if (!file)
+      return fail(error_code::io, "focus preview", "cannot read spool", path.string());
+    for (std::size_t x = 0; x < full.width; ++x)
+      sums[x / step] = add(sums[x / step], row[x]);
+    if ((y + 1) % step == 0 || y + 1 == full.height) {
+      const auto my = y / step;
+      const auto rows = y + 1 - my * step;
+      for (std::size_t x = 0; x < size.width; ++x) {
+        const auto count = rows * std::min(step, full.width - x * step);
+        output.view().at(x, my) = to_linear_srgb(mul(sums[x], 1.f / count), report.encoding);
+        sums[x] = {};
+      }
+    }
+  }
+  return output;
+}
+
 result<void> diagnostics(const std::string &directory, const coherent_maps &maps,
-                         const focus_stack_report &report) {
+                         const focus_stack_report &report, const fs::path &reference_pixels,
+                         const fs::path &fused_pixels) {
   std::error_code ec;
   fs::create_directories(directory, ec);
   if (ec)
@@ -521,13 +582,31 @@ result<void> diagnostics(const std::string &directory, const coherent_maps &maps
     if (auto written = write_image((root / name).string(), preview.view()); !written)
       return written;
   }
+  for (const auto &[name, path] :
+       {std::pair{"before.jpg", reference_pixels}, std::pair{"after.jpg", fused_pixels}}) {
+    auto preview = preview_spool(path, report);
+    if (!preview)
+      return std::unexpected(preview.error());
+    if (auto written =
+            write_image((root / name).string(), preview->view(), {output_format::jpeg, 95});
+        !written)
+      return written;
+  }
   auto transaction = atomic_output::create((root / "report.json").string());
   if (!transaction)
     return std::unexpected(transaction.error());
   std::ofstream file(transaction->temporary_path());
+  file.imbue(std::locale::classic());
+  file << std::setprecision(12);
   file << "{\n  \"algorithm\": \"focus-stack-classical-v1\",\n"
-       << "  \"working_space\": \"float32 linear-sRGB/D65\",\n"
-       << "  \"input_origin\": \"rendered_rgb\",\n"
+       << "  \"working_space\": \""
+       << (report.raw_context ? "float32 linear-Rec.2020/D65" : "float32 linear-sRGB/D65")
+       << "\",\n"
+       << "  \"input_origin\": \"" << (report.raw_context ? "scene_linear_raw" : "rendered_rgb")
+       << "\",\n"
+       << "  \"output_encoding\": \""
+       << (report.raw_context ? "float32 linear Rec.2020 ICC TIFF" : "16-bit sRGB ICC TIFF")
+       << "\",\n"
        << "  \"reference_index\": " << report.reference_index
        << ",\n  \"width\": " << report.dimensions.width
        << ",\n  \"height\": " << report.dimensions.height
@@ -537,8 +616,37 @@ result<void> diagnostics(const std::string &directory, const coherent_maps &maps
        << ",\n  \"estimated_peak_bytes\": " << report.estimated_peak_bytes
        << ",\n  \"scratch_bytes\": " << report.scratch_bytes
        << ",\n  \"motion_fraction\": " << report.motion_fraction
-       << ",\n  \"low_confidence_fraction\": " << report.low_confidence_fraction
-       << ",\n  \"frames\": [\n";
+       << ",\n  \"low_confidence_fraction\": " << report.low_confidence_fraction << ",\n";
+  if (report.raw_context) {
+    const auto &context = *report.raw_context;
+    const auto &ref = context.reference();
+    file << "  \"raw_context\": {\"fingerprint\":" << json_string(context.fingerprint())
+         << ",\"camera\":" << json_string(ref.camera)
+         << ",\"decoder_version\":" << json_string(ref.decoder_version)
+         << ",\"color_reference_index\":" << context.reference_index()
+         << ",\"calibration\":\"LibRaw daylight camera-to-XYZ/D65, diagonal WB once\""
+         << ",\"demosaic\":\"float directional Bayer v1\""
+         << ",\"exposure_policy\":\"strict metadata match; shared green-normalized sensor "
+            "white\""
+         << ",\"iso\":" << ref.iso << ",\"shutter_seconds\":" << ref.shutter_seconds
+         << ",\"aperture\":" << ref.aperture << ",\"white_balance\":";
+    json_array(file, context.white_balance());
+    file << ",\"black\":";
+    json_array(file, ref.black);
+    file << ",\"white\":";
+    json_array(file, ref.white);
+    file << ",\"camera_to_xyz\":";
+    json_array(file, ref.camera_to_xyz);
+    file << ",\"cfa\":";
+    json_array(file, ref.cfa);
+    file << ",\"raw_width\":" << ref.raw_dimensions.width
+         << ",\"raw_height\":" << ref.raw_dimensions.height << ",\"active_left\":" << ref.left
+         << ",\"active_top\":" << ref.top << ",\"active_width\":" << ref.active_dimensions.width
+         << ",\"active_height\":" << ref.active_dimensions.height
+         << ",\"orientation\":" << ref.orientation << ",\"nominal_bits\":" << ref.nominal_bits
+         << "},\n";
+  }
+  file << "  \"frames\": [\n";
   for (std::size_t i = 0; i < report.frames.size(); ++i) {
     const auto &f = report.frames[i];
     const auto &t = f.alignment;
@@ -549,8 +657,20 @@ result<void> diagnostics(const std::string &directory, const coherent_maps &maps
          << ",\"dense_correlation\":" << t.dense_correlation
          << ",\"refinement_samples\":" << t.refinement_samples
          << ",\"refined\":" << (t.refined ? "true" : "false")
-         << ",\"selected_fraction\":" << f.selected_fraction << '}'
-         << (i + 1 == report.frames.size() ? "\n" : ",\n");
+         << ",\"selected_fraction\":" << f.selected_fraction;
+    if (report.raw_context) {
+      const auto &m = report.raw_context->frames()[i];
+      const auto &stats = f.raw_statistics;
+      file << ",\"input_path\":" << json_string(m.path)
+           << ",\"input_fingerprint\":" << json_string(m.input_fingerprint)
+           << ",\"camera_wb_metadata\":";
+      json_array(file, m.camera_wb);
+      file << ",\"raw_saturated_fraction\":" << stats.saturated_fraction
+           << ",\"working_negative_fraction\":" << stats.negative_fraction
+           << ",\"working_minimum\":" << stats.minimum
+           << ",\"working_maximum\":" << stats.maximum;
+    }
+    file << '}' << (i + 1 == report.frames.size() ? "\n" : ",\n");
   }
   file << "  ]\n}\n";
   file.close();
@@ -581,7 +701,8 @@ result<focus_stack_report> stack_focus(std::span<const std::string> inputs,
   if (fs::symlink_status(output, ec).type() != fs::file_type::not_found && !ec)
     return fail(error_code::io, "focus output", "output already exists", output);
   if (!options.diagnostics_directory.empty()) {
-    for (auto name : {"source-map.tif", "confidence.tif", "motion.tif", "report.json"}) {
+    for (auto name : {"source-map.tif", "confidence.tif", "motion.tif", "before.jpg",
+                      "after.jpg", "report.json"}) {
       const auto path = fs::path(options.diagnostics_directory) / name;
       const auto status = fs::symlink_status(path, ec);
       if (!ec && status.type() != fs::file_type::not_found)
@@ -589,10 +710,33 @@ result<focus_stack_report> stack_focus(std::span<const std::string> inputs,
                     path.string());
     }
   }
+  const auto raw_path = [](const std::string &path) {
+    auto suffix = fs::path(path).extension().string();
+    std::ranges::transform(suffix, suffix.begin(),
+                           [](unsigned char c) { return std::tolower(c); });
+    return suffix == ".cr3" || suffix == ".dng";
+  };
+  const bool raw = raw_path(inputs.front());
+  for (const auto &path : inputs)
+    if (raw_path(path) != raw)
+      return fail(error_code::invalid_argument, "focus preflight",
+                  "mixed RAW/rendered sequence", path);
+  std::optional<raw_sequence_context> context;
+  if (raw) {
+    raw_sequence_options settings;
+    settings.reference_index = options.reference_index;
+    settings.memory_budget_mib = options.memory_budget_mib;
+    auto prepared = prepare_raw_sequence(inputs, settings);
+    if (!prepared)
+      return std::unexpected(prepared.error());
+    context = std::move(*prepared);
+  }
   extent size{};
   std::size_t largest_file = 0;
-  for (const auto &path : inputs) {
-    auto dimensions = rendered_image_size(path);
+  for (std::size_t i = 0; i < inputs.size(); ++i) {
+    const auto &path = inputs[i];
+    auto dimensions = raw ? result<extent>(context->frames()[i].output_dimensions)
+                          : rendered_image_size(path);
     if (!dimensions)
       return std::unexpected(dimensions.error());
     if (size.width && (size.width != dimensions->width || size.height != dimensions->height))
@@ -613,7 +757,10 @@ result<focus_stack_report> stack_focus(std::span<const std::string> inputs,
   const std::size_t pixels = size.width * size.height;
   const std::size_t budget = options.memory_budget_mib * mib;
   const std::size_t usable = budget * 4 / 5;
-  const std::size_t decode = 24 * pixels + largest_file + 128 * mib;
+  std::size_t decode = 24 * pixels + largest_file + 128 * mib;
+  if (context)
+    for (const auto &m : context->frames())
+      decode = std::max(decode, m.decode_reserve_bytes);
   if (decode > usable)
     return fail(
         error_code::invalid_argument, "focus memory budget",
@@ -678,6 +825,23 @@ result<focus_stack_report> stack_focus(std::span<const std::string> inputs,
   report.estimated_peak_bytes = std::max({decode, registration, fusion}) * 5 / 4;
   report.scratch_bytes = scratch_bytes;
   report.frames.resize(inputs.size());
+  report.raw_context = std::move(context);
+  if (report.raw_context)
+    report.encoding = report.raw_context->encoding();
+  else
+    report.encoding.normalization = "rendered RGB ICC/assumed sRGB linearization";
+  {
+    std::ofstream manifest(scratch.path / "context.txt");
+    manifest << (raw ? "linear Rec.2020/D65 scene RAW" : "linear sRGB/D65 rendered") << '\n'
+             << report.encoding.normalization << '\n';
+    if (report.raw_context)
+      for (const auto &m : report.raw_context->frames())
+        manifest << m.input_fingerprint << ' ' << m.path << '\n';
+    manifest.close();
+    if (!manifest)
+      return fail(error_code::io, "focus scratch", "cannot write context manifest",
+                  scratch.path.string());
+  }
   std::vector<frame> frames(inputs.size());
   for (std::size_t i = 0; i < inputs.size(); ++i) {
     frames[i].pixels = scratch.path / (std::to_string(i) + ".rgb");
@@ -687,18 +851,40 @@ result<focus_stack_report> stack_focus(std::span<const std::string> inputs,
   // Decode reference first. At most one full-resolution RGB owner is alive at any time.
   for (std::size_t pass = 0; pass < inputs.size(); ++pass) {
     const auto i = pass == 0 ? reference : pass <= reference ? pass - 1 : pass;
-    auto decoded = read_image(inputs[i]);
+    auto decode_frame = [&]() -> result<working_image> {
+      if (report.raw_context) {
+        auto developed = decode_raw_frame(inputs[i], *report.raw_context, i);
+        if (!developed)
+          return std::unexpected(developed.error());
+        report.frames[i].raw_statistics = developed->statistics;
+        return std::move(developed->image);
+      }
+      auto legacy = read_image(inputs[i]);
+      if (!legacy)
+        return std::unexpected(legacy.error());
+      if (legacy->origin != input_origin::rendered_rgb)
+        return fail(error_code::decode, "focus decode", "input changed after preflight",
+                    inputs[i]);
+      image<rgb_f32> pixels(legacy->pixels.size());
+      for (std::size_t y = 0; y < pixels.size().height; ++y)
+        for (std::size_t x = 0; x < pixels.size().width; ++x) {
+          const auto p = legacy->pixels.view().at(x, y);
+          pixels.view().at(x, y) = {p.r, p.g, p.b};
+        }
+      return working_image(std::move(pixels), report.encoding);
+    };
+    auto decoded = decode_frame();
     if (!decoded)
       return std::unexpected(decoded.error());
-    if (decoded->origin != input_origin::rendered_rgb ||
-        decoded->pixels.size().width != size.width ||
-        decoded->pixels.size().height != size.height)
-      return fail(error_code::decode, "focus decode", "input changed after preflight",
+    if (decoded->pixels.size().width != size.width ||
+        decoded->pixels.size().height != size.height ||
+        decoded->encoding.normalization != report.encoding.normalization)
+      return fail(error_code::decode, "focus decode", "input/context changed after preflight",
                   inputs[i]);
     for (std::size_t y = 0; y < size.height; ++y)
       for (auto p : decoded->pixels.view().row(y))
         if (!std::isfinite(p.r) || !std::isfinite(p.g) || !std::isfinite(p.b) ||
-            std::max({std::abs(p.r), std::abs(p.g), std::abs(p.b)}) > 16)
+            std::max({std::abs(p.r), std::abs(p.g), std::abs(p.b)}) > (raw ? 1e6 : 16))
           return fail(error_code::invalid_argument, "focus input",
                       "non-finite or excessive rendered RGB range", inputs[i]);
     const auto fine_size = extent{(size.width + refinement_step - 1) / refinement_step,
@@ -712,7 +898,7 @@ result<focus_stack_report> stack_focus(std::span<const std::string> inputs,
              sy < std::min((y + 1) * refinement_step, size.height); ++sy)
           for (std::size_t sx = x * refinement_step;
                sx < std::min((x + 1) * refinement_step, size.width); ++sx) {
-            sum += luminance(decoded->pixels.view().at(sx, sy));
+            sum += luminance(decoded->pixels.view().at(sx, sy), report.encoding);
             ++count;
           }
         fine.view().at(x, y).value = sum / count;
@@ -724,12 +910,11 @@ result<focus_stack_report> stack_focus(std::span<const std::string> inputs,
     image<gray> small(colors.size());
     for (std::size_t y = 0; y < small.size().height; ++y)
       for (std::size_t x = 0; x < small.size().width; ++x)
-        small.view().at(x, y).value = luminance(colors.view().at(x, y));
-    if (auto saved = save<linear_rgb>(frames[i].pixels.string() + ".color", colors.view());
-        !saved)
+        small.view().at(x, y).value = luminance(colors.view().at(x, y), report.encoding);
+    if (auto saved = save<rgb_f32>(frames[i].pixels.string() + ".color", colors.view()); !saved)
       return std::unexpected(saved.error());
     colors = {};
-    if (auto saved = save<linear_rgb>(frames[i].pixels, decoded->pixels.view()); !saved)
+    if (auto saved = save<rgb_f32>(frames[i].pixels, decoded->pixels.view()); !saved)
       return std::unexpected(saved.error());
     decoded->pixels = {}; // Release the full-resolution frame before feature extraction.
     if (auto saved = save<gray>(frames[i].pixels.string() + ".proxy", small.view()); !saved)
@@ -782,7 +967,7 @@ result<focus_stack_report> stack_focus(std::span<const std::string> inputs,
       report.frames[i].alignment = t;
     }
   }
-  auto maps = analyze(frames, size, step, reference);
+  auto maps = analyze(frames, size, step, reference, report.encoding);
   if (!maps)
     return std::unexpected(maps.error());
   for (std::size_t y = 0; y < maps->size.height; ++y)
@@ -806,15 +991,16 @@ result<focus_stack_report> stack_focus(std::span<const std::string> inputs,
       const auto x0 = x > halo ? x - halo : 0, y0 = y > halo ? y - halo : 0;
       const auto x1 = std::min(size.width, x + tile + halo);
       const auto y1 = std::min(size.height, y + tile + halo);
-      auto result = fuse_tile(frames, size, {x0, y0, x1 - x0, y1 - y0}, *maps, step, reference);
+      auto result = fuse_tile(frames, size, {x0, y0, x1 - x0, y1 - y0}, *maps, step, reference,
+                              report.encoding);
       if (!result)
         return std::unexpected(result.error());
       for (std::size_t row = y; row < std::min(size.height, y + tile); ++row) {
         const auto width = std::min(tile, size.width - x);
-        fused.seekp((row * size.width + x) * sizeof(linear_rgb));
+        fused.seekp((row * size.width + x) * sizeof(rgb_f32));
         fused.write(
             reinterpret_cast<const char *>(result->view().row(row - y0).data() + x - x0),
-            width * sizeof(linear_rgb));
+            width * sizeof(rgb_f32));
         if (!fused)
           return fail(error_code::io, "focus fusion", "cannot write fused tile",
                       fused_path.string());
@@ -825,17 +1011,32 @@ result<focus_stack_report> stack_focus(std::span<const std::string> inputs,
     return fail(error_code::io, "focus fusion", "cannot flush fused spool",
                 fused_path.string());
   if (!options.diagnostics_directory.empty())
-    if (auto written = diagnostics(options.diagnostics_directory, *maps, report); !written)
+    if (auto written = diagnostics(options.diagnostics_directory, *maps, report,
+                                   frames[reference].pixels, fused_path);
+        !written)
       return std::unexpected(written.error());
-  auto written = write_tiff_rows(
-      output, size, [&](std::size_t y, std::span<linear_rgb> row) -> result<void> {
-        fused.seekg(y * size.width * sizeof(linear_rgb));
-        fused.read(reinterpret_cast<char *>(row.data()), row.size_bytes());
-        if (!fused)
-          return fail(error_code::io, "focus output", "cannot read fused spool",
-                      fused_path.string());
-        return {};
-      });
+  const auto read_row = [&](std::size_t y, std::span<rgb_f32> row) -> result<void> {
+    fused.seekg(y * size.width * sizeof(rgb_f32));
+    fused.read(reinterpret_cast<char *>(row.data()), row.size_bytes());
+    if (!fused)
+      return fail(error_code::io, "focus output", "cannot read fused spool",
+                  fused_path.string());
+    return {};
+  };
+  result<void> written;
+  if (raw)
+    written = write_working_tiff_rows(output, size, report.encoding, read_row);
+  else {
+    std::vector<rgb_f32> working_row(size.width);
+    written = write_tiff_rows(
+        output, size, [&](std::size_t y, std::span<linear_rgb> row) -> result<void> {
+          if (auto read = read_row(y, working_row); !read)
+            return read;
+          for (std::size_t x = 0; x < row.size(); ++x)
+            row[x] = {working_row[x].r, working_row[x].g, working_row[x].b};
+          return {};
+        });
+  }
   if (!written)
     return std::unexpected(written.error());
   return report;

@@ -1,0 +1,29 @@
+{
+  "version": 1,
+  "files": [
+    {
+      "path": "sood/raw/frame_000.CR3",
+      "url": "https://huggingface.co/datasets/jjjsood/focus-stack-sample/resolve/0f8256edf2d2e3f1f1ea162f78a8bca36eb6915c/raw/frame_000.CR3",
+      "sha256": "4538bc75741cc16292b1838c52989050d084c4a51f0e005a554819190c379fca",
+      "group": "cr3",
+      "source": "Johannes Sood, Focus Stack Sample (2026), CC BY 4.0",
+      "purpose": "exploratory sparse depth-span subset of 999-frame macro stack; not complete scene coverage"
+    },
+    {
+      "path": "sood/raw/frame_499.CR3",
+      "url": "https://huggingface.co/datasets/jjjsood/focus-stack-sample/resolve/0f8256edf2d2e3f1f1ea162f78a8bca36eb6915c/raw/frame_499.CR3",
+      "sha256": "1704e3a096387ed0dadd2a377b6643fc1562ff9898e880c9089514d9e70ec323",
+      "group": "cr3",
+      "source": "Johannes Sood, Focus Stack Sample (2026), CC BY 4.0",
+      "purpose": "exploratory sparse depth-span subset of 999-frame macro stack; not complete scene coverage"
+    },
+    {
+      "path": "sood/raw/frame_998.CR3",
+      "url": "https://huggingface.co/datasets/jjjsood/focus-stack-sample/resolve/0f8256edf2d2e3f1f1ea162f78a8bca36eb6915c/raw/frame_998.CR3",
+      "sha256": "deb5687bcc09b9ccfb94805b9afccff99edac7e74a08ffab20a54fad54174289",
+      "group": "cr3",
+      "source": "Johannes Sood, Focus Stack Sample (2026), CC BY 4.0",
+      "purpose": "exploratory sparse depth-span subset of 999-frame macro stack; not complete scene coverage"
+    }
+  ]
+}

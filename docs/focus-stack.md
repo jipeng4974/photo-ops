@@ -19,12 +19,20 @@ xmake run photo-ops focus-stack near.tif middle.tif far.tif -o stacked.tif \
 索引，默认 `N/2`；顺序由调用者指定，不根据文件名重新排序。已经配准的序列可以
 显式 `--aligned` 跳过几何估计；默认不会在配准失败时悄悄假设 identity。
 
-RAW 的 wide-gamut float / `raw_sequence_context` 仍未实现，**CR3 明确拒绝**，
-不调用旧的逐帧 camera-WB / 16-bit decoder 来合成。[RAW 契约](raw-pipeline.md)
-继续作为 RAW bracket 的接入门槛。首版 rendered 核心依赖现有明确类型
-`linear_rgb`（linear-sRGB/D65），不接受或误标 Rec.2020；也不匹配逐帧曝光/WB。
-用户需在外部开发阶段统一这些参数，rendered 像素无法还原 RAW 一致性证据。
-streaming JPEG/EXR 输出留待后续，避免为输出重新分配完整 RGB 图。
+v1.2 新增共享 `raw_sequence_context` 的 Bayer CR3 / DNG 路径；先顺序 unpack 取得
+完整校准、冻结 context，再顺序 float develop。RAW 输出为 **float32 linear Rec.2020 /
+D65 ICC TIFF**，保留 signed/HDR；rendered 输入仍输出 16-bit sRGB TIFF。内部使用
+`rgb_f32` + 必需的 `color_encoding`，Y 按 working primaries 计算，不能将 Rec.2020
+误传给旧 `linear_rgb` API。完整 sensor / calibration 支持范围见 [RAW 契约](raw-pipeline.md)。
+
+```bash
+xmake run photo-ops focus-stack near.CR3 middle.CR3 far.CR3 -o stack-linear.tif \
+  --memory-budget-mib 2048 --diagnostics build/raw-stack
+```
+
+RAW 与 rendered 不能混合，曝光／black／camera mode 不兼容整组拒绝。reference 默认
+中间帧，颜色 context 一旦冻结不再由 registration 重算。`--aligned` 只跳过 registration，
+不跳过 metadata/context 校验。streaming JPEG/EXR 最终输出仍未加入。
 
 ## v1.1 精配准
 
@@ -51,7 +59,8 @@ translation=(3,-2) 与反向 scale=.997 / rotation=-.002 / translation=(.31,-.27
 
 ## 已实现的处理过程
 
-1. 先读 header 尺寸，检查 2..256 帧、同尺寸、32..65536 每边、最多 200 MP；
+1. rendered 先读 header；RAW 先预算检查再顺序 unpack 校准。检查 2..256 帧、
+   同尺寸、32..65536 每边、最多 200 MP；
    输入文件上限 1 GiB，JPEG header 路径额外限定 256 MiB。预算和 scratch 预检后
    顺序解码，一次仅持有一张全尺寸 float32 RGB。输入在运行中需保持不变。
 2. 写入 private run directory 的原生 RGB spool，同时生成 box-average RGB/Y
@@ -81,7 +90,7 @@ translation=(3,-2) 与反向 scale=.997 / rotation=-.002 / translation=(.31,-.27
    发布。正常成功／失败清理本次 scratch；SIGKILL 后 private run directory 可残留。
 
 同目录 diagnostics 提供 proxy-resolution `source-map.tif`、`confidence.tif`、
-`motion.tif` 及最后发布的 `report.json`。source-map 为 regularized coarse label，
+`motion.tif`、sRGB/clipped `before.jpg` / `after.jpg` 及最后发布的 `report.json`。source-map 为 regularized coarse label，
 灰度线性值 `index/(N-1)`，**不是 full-res blend 的逐像素唯一来源**。map 使用带
 sRGB ICC 的可视 TIFF，读取 scalar 时需逆 transfer。JSON 包括 reference、变换、
 match/inlier/residual、source 选择比例、motion/low-confidence 比例及预算估计。
@@ -98,12 +107,14 @@ P = full-resolution pixel count
 Q = proxy pixel count
 T = (tile_size + 2*64)^2
 usable = 0.8 * budget
-single_frame_decode = 24*P + largest_input_file_bytes + 128 MiB
+single_frame_decode_rendered = 24*P + largest_input_file_bytes + 128 MiB
+single_frame_decode_RAW = 40*raw_sensor_pixels + input_file_bytes + 256 MiB
 R = refinement proxy pixel count
 registration = max(512*Q, 128*R) + 128 MiB
 coherent_maps_and_fusion = 128*Q + 512*T + 128 MiB
 reported_peak = max(these three stages) / 0.8
-scratch_estimate = 12*(N+1)*P + N*(20*Q + 4*R) + 6*P
+scratch_estimate = 12*(N+1)*P + N*(20*Q + 4*R) + output_bytes
+output_bytes = 6*P (rendered) or 12*P (RAW)
 ```
 
 spool、coarse labels 和 metadata 外，RGB resident 工作集不随 N×P 增长。
@@ -112,11 +123,11 @@ spool、coarse labels 和 metadata 外，RGB resident 工作集不随 N×P 增�
 不是实际分配常量。128 MiB 固定 reserve 覆盖 codec/OpenCV/allocator 工作区的估计，
 并非第三方库的严格上界；RSS 还含动态库、线程和 OS page cache。
 预算是 preflight 工程估计，**不是 OS RSS 限制或任意相机 RAW 解码保证**。
-真正 RAW 接入前仍要实测 decoder reserve。scratch 空间检查不是预分配承诺，
+RAW 使用保守 reserve，需随代表相机／sensor mode 的实测继续校准。scratch 空间检查不是预分配承诺，
 磁盘中途写满仍走 typed I/O error；不发布 partial final image。
 
 下面保留原始预算设计中进一步的验收目标。与当前范围有差别时以上实现记录为准；
-RAW、精细 motion/local warp、streaming EXR 和 45–60 MP 性能标定仍属于后续工作。
+更多 sensor/空间 black 模型、精细 motion/local warp、streaming EXR 和 45–60 MP 性能标定仍属于后续工作。
 
 ## 预算按阶段计算，不同时持有 N 张全尺寸图
 

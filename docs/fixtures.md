@@ -149,3 +149,28 @@ python scripts/smoke-fixtures.py --manifest tests/data/deptheos-provenance.json
 python scripts/fetch-fixtures.py --manifest tests/data/landscape-manifest.json
 python scripts/review-sunlight.py
 ```
+
+## v1.2 RAW float / R8 补充素材
+
+`r8-single-manifest.json` / `r8-single-provenance.json` 固定 raw.pixls.us 的 R8
+sample 6585（RAW Full Frame）和 6587（CRAW Full Frame），记录原始 repository row、
+CC0 链接与 SHA-256。它们用于相机解码、signed float 范围和 24 MP 重复输入的
+性能／identity 测试，**不是一组 focus bracket**。用户自摄 corpus 仍未采集。
+
+```bash
+python scripts/fetch-fixtures.py --manifest tests/data/r8-single-manifest.json
+PHOTO_OPS_RAW_FIXTURES="$PWD/tests/data/downloads" xmake test
+```
+
+opt-in C++ 测试也读取默认 manifest 中相邻的三帧 Canon R5 II CR3，检查同一 context
+和全局色度一致性。该三帧是 999-frame macro 的连续前缀，景深跨度很小，不能用来
+证明全场景已合成清晰。新增 `canon-depth-span-manifest.json` 固定 frame 000 / 499 /
+998 的 RAW 身份，供探索更大深度跨度的失败与 conservative rejection；三帧抽样
+同样不代表完整覆盖。来源继续为 Johannes Sood、CC BY 4.0，不提交原始图片。
+
+```bash
+python scripts/fetch-fixtures.py --manifest tests/data/canon-depth-span-manifest.json
+```
+
+生成的 Bayer DNG 数值 fixtures 位于 C++ 临时目录，控制 black、WB metadata、
+exposure、orientation、negative / HDR sensor data，正常结束删除；不依赖网络照片。

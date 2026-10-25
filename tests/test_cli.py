@@ -91,9 +91,9 @@ class CommandLine(unittest.TestCase):
             again = self.run_cli("focus-stack", source, source, "-o", root/"stack.tif")
             self.assertEqual(again.returncode, 1)
 
-    def test_focus_stack_rejects_raw_and_invalid_options(self):
+    def test_focus_stack_rejects_missing_raw_and_invalid_options(self):
         cases = [
-            (("focus-stack", "a.CR3", "b.CR3", "-o", "unused.tif"), "RAW float/context"),
+            (("focus-stack", "a.CR3", "b.CR3", "-o", "unused.tif"), "open RAW sequence"),
             (("focus-stack", "a.tif", "-o", "unused.tif"), "at least two"),
             (("focus-stack", "a.tif", "b.tif", "-o", "unused.tif",
               "--strength", "1"), "--strength requires"),

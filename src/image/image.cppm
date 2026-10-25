@@ -5,6 +5,7 @@ module;
 #include <cstddef>
 #include <limits>
 #include <span>
+#include <string>
 #include <type_traits>
 #include <utility>
 #include <vector>
@@ -18,6 +19,25 @@ struct linear_rgb {
   float r{};
   float g{};
   float b{};
+};
+
+/// Untagged storage only. RGB semantics require an accompanying color_encoding.
+struct rgb_f32 {
+  float r{}, g{}, b{};
+};
+
+enum class rgb_primaries { srgb, rec2020 };
+enum class white_point { d65 };
+enum class transfer_function { linear };
+enum class image_origin { scene_linear_raw, rendered_rgb };
+
+struct color_encoding {
+  rgb_primaries primaries;
+  white_point white = white_point::d65;
+  transfer_function transfer = transfer_function::linear;
+  image_origin origin = image_origin::rendered_rgb;
+  std::string
+      normalization{}; // RAW: immutable context fingerprint; rendered: conversion provenance.
 };
 
 /// A linear luminance or scalar analysis sample; no transfer function is implied.
@@ -47,6 +67,7 @@ struct rectangle {
 static_assert(sizeof(float) == 4 && std::numeric_limits<float>::is_iec559);
 
 static_assert(sizeof(linear_rgb) == 3 * sizeof(float));
+static_assert(sizeof(rgb_f32) == 3 * sizeof(float));
 
 /// Borrowed pixels. Stride is measured in pixels; the owner must outlive every view.
 template <class Pixel> class image_view {
@@ -188,5 +209,15 @@ private:
 
   extent size_{};
   std::vector<Pixel> pixels_;
+};
+
+/// Owning working RGB with mandatory, explicit color/provenance metadata.
+struct working_image {
+  image<rgb_f32> pixels;
+  color_encoding encoding;
+
+  working_image(image<rgb_f32> data, color_encoding color)
+      : pixels(std::move(data)), encoding(std::move(color)) {
+  }
 };
 } // namespace photo_ops

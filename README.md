@@ -36,16 +36,19 @@ If xmake is missing, run `scripts/bootstrap-xmake.sh` and add
 xmake run photo-ops inspect input.CR3
 xmake run photo-ops convert input.CR3 -o decoded.tif
 xmake run photo-ops sunlight-enhance input.CR3 -o enhanced.tif --diagnostics build/sunlight
-xmake run photo-ops focus-stack near.tif far.tif -o stacked.tif
+xmake run photo-ops focus-stack near.CR3 middle.CR3 far.CR3 -o stacked-linear.tif
 ```
 
-`focus-stack` requires consistently developed TIFF/JPEG frames; RAW input is not yet
-supported. Existing outputs are never overwritten. Run `xmake run photo-ops --help`
-for all options.
+`focus-stack` accepts compatible Bayer CR3/DNG brackets with one frozen RAW context
+and writes signed float32 linear Rec.2020/D65 ICC TIFF. Consistently developed
+TIFF/JPEG sequences retain 16-bit sRGB TIFF output. RAW and rendered inputs cannot
+be mixed. See [RAW support and limits](docs/raw-pipeline.md).
+
+Existing outputs are never overwritten. Run `xmake run photo-ops --help` for all options.
 
 ## API
 
-Version **1.1.0** keeps two photographic entry points: `enhance_sunlight(...)` and
+Version **1.2.0** keeps two photographic entry points: `enhance_sunlight(...)` and
 `stack_focus(...)`.
 
 **Breaking change:** `align_focus_stack(...)` is no longer exported. Call

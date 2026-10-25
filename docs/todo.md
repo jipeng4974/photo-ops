@@ -196,5 +196,9 @@ P1-3 performance optimization
 - **P0-2 / v1.1.0**：已接入预算内的高分辨率四参数 direct refinement；新增
   dense gradient 指标与 fractional translation / 正反 breathing、rotation 回归。
   具体语义与验收边界见 [focus-stack](focus-stack.md)。
-- P1-1、P1-2、P1-3 按上述顺序继续；R8 自摄 corpus 仍待真实拍摄，不能由第三方
-  Canon 或 synthetic fixtures 替代该项验收。
+- **P1-1 / v1.2.0**：已实现 signed float Bayer RAW → XYZ → Rec.2020、immutable
+  sequence context、metadata/身份检查与 float32 ICC TIFF 输出；generated DNG 与
+  真实 Canon / R8 RAW/CRAW 解码回归通过，三帧 Canon 原尺寸合成已完成。R8 自摄
+  bracket 的颜色／摄影质量验收仍待素材，不能由第三方单张替代。
+- P1-2、P1-3 继续；九组 synthetic branches / railings / rocks × defocus 尺度已记录
+  原始失败基线，后续先处理 boundary 再 profile/cache。

@@ -19,6 +19,7 @@ graph TD
     IO --> COLOR[photo_ops.color]
     IO --> IMAGE[photo_ops.image]
     RAW --> IMAGE
+    RAW --> COLOR
     COLOR --> IMAGE
     PYRAMID[photo_ops.pyramid] --> COLOR
     PYRAMID --> IMAGE
@@ -39,7 +40,7 @@ module interfaces 可以跨 target 使用。第三方 headers 只出现在 imple
 或 header units；xmake 的自动 std module 构建也显式关闭。
 
 `photo_ops.sunlight` 已实现 classical MVP，见 [算法与诊断](sunlight-enhance.md)。
-`photo_ops.focus_stack` 已实现首版 rendered-image 合成；registration 与 fusion
+`photo_ops.focus_stack` 已实现 rendered 与 shared-context Bayer RAW 合成；registration 与 fusion
 属于同一个模块的不同 implementation files，不预先建两个 reusable 模块。
 `align_focus_stack` 是不 export 的模块内 helper；外部通过 `stack_focus` 及其
 report 验证几何结果，不为了单测把配准阶段发布成另一个摄影 API。
@@ -47,7 +48,7 @@ report 验证几何结果，不为了单测把配准阶段发布成另一个摄�
 输出；解码、颜色转换和最终编码继续通过 `photo_ops.io` 边界，OpenCV 仅在私有
 alignment adapter 中使用。图像算法内部仍使用项目类型和借用 view。
 [RAW / raw_sequence_context](raw-pipeline.md) 仍是 RAW bracket 的前置门槛；
-当前 CLI 对其明确报错，不把单帧 sRGB decoder 当作 sequence-safe 开发。
+v1.2 已通过独立的 float Bayer adapter 接入，不把单帧 sRGB decoder 当作 sequence-safe 开发。
 详见 [focus-stack 实现与预算](focus-stack.md)。
 
 ## 目录按职责组织
@@ -57,13 +58,13 @@ src/
   core/error.cppm
   image/image.cppm, pyramid.cppm
   color/color.cppm
-  io/io.cppm, io.cpp, raw.cppm, raw.cpp, output.cppm, output.cpp
+  io/io.cppm, io.cpp, working.cpp, raw.cppm, raw.cpp, raw_sequence.cpp, output.cppm, output.cpp
   sunlight/sunlight.cppm, sunlight.cpp
   focus_stack/focus_stack.cppm, alignment.cpp, focus_stack.cpp
   diagnostics/diagnostics.cppm, sunlight.cpp
   cli/main.cpp
 tests/
-  foundation.cpp, sunlight.cpp, focus_stack.cpp
+  foundation.cpp, sunlight.cpp, focus_stack.cpp, raw_sequence.cpp
   test_configure.py, test_cli.py, test_result_usage.py
   data/*manifest.json, *provenance.json
 ```
@@ -75,8 +76,8 @@ tests/
 
 - `linear_rgb`：三个 interleaved IEEE-754 float32，linear-sRGB / D65；不以
   gamma 编码，不隐式裁到 `[0,1]`。选择 sRGB primaries 是首版明确的限制，
-  并非 camera-native 或宽色域工作空间，也不是永久 ABI。未来带 encoding 的
-  working image 走 linear Rec.2020/D65，不能重新解释旧类型的样本语义。
+  并非 camera-native 或宽色域工作空间，也不是永久 ABI。v1.2 的 `rgb_f32` +
+  `working_image` / `color_encoding` 明确承载 linear Rec.2020/D65，不重新解释旧样本。
 - `gray`：一个 float32；luminance proxy 使用线性相对亮度。
 - `image<Pixel>`：连续存储、唯一所有权、move-only；完整拷贝必须显式 `clone()`。
   moved-from 对象为空。非法 shape／尺寸溢出属于调用违约，零尺寸只允许 `0×0`；
@@ -87,19 +88,20 @@ tests/
   view 不延长 owner 生命周期，owner 移动、销毁或替换后应重新取得 view；
   禁止从临时 owner 直接取得 view。索引与 storage 覆盖范围均有检查。
 - 当前像素单位是相对值，无物理辐射定标。RAW 路径使用固定处理参数，
-  不进行逐帧 auto-brightening；未来 stack 必须在开发前冻结 `raw_sequence_context`，检查曝光／sensor mode，
-  共用 WB、black 模型和 normalization；当前逐帧 camera WB 不满足这个要求。
+  不进行逐帧 auto-brightening；stack 在开发前冻结 `raw_sequence_context`，检查曝光／sensor mode，
+  共用 WB、black 模型和 normalization；旧单帧 camera-WB 路径不用于 stack。
 
 `pyramid` 提供线性 luminance proxy 与 Gaussian 下采样：separable
 `[1 4 6 4 1]/16`，边界 replicate，偶数坐标取样，奇数尺寸向上取整。
 这为后续 registration proxy 与多尺度 focus measure 提供已测试的基础；
-Laplacian 重建与 fusion 尚未实现。
+focus-stack 内部已实现有界 tile 的 Laplacian 重建与 fusion。
 
 ## 输入与输出
 
 | 路径 | 当前行为 |
 | --- | --- |
-| CR3 preferred | LibRaw，camera WB，AHD，关闭 auto-brightening、额外降噪与 gamma；16-bit linear sRGB 中间结果转 float32。可半尺寸解码用于验证 |
+| CR3 compatibility (`convert` / `sunlight-enhance`) | LibRaw，camera WB，AHD，关闭 auto-brightening、额外降噪与 gamma；16-bit linear sRGB 中间结果转 float32。可半尺寸解码用于验证 |
+| RAW focus-stack | 支持的 Bayer CR3/DNG，shared context，signed float demosaic → XYZ → Rec.2020；输出 float32 linear ICC TIFF |
 | TIFF supported | stripped、contiguous、top-left、无 alpha 的 8/16-bit unsigned RGB；支持压缩与 RGB ICC |
 | JPEG supported | 8-bit RGB/grayscale，支持 RGB ICC；CMYK 与非 8-bit 拒绝；按文件像素方向读取，不自动 EXIF 旋转 |
 | 16-bit TIFF default | sRGB transfer + embedded sRGB ICC，Deflate 无损压缩；不做 tone map，越界值裁剪 |
@@ -109,14 +111,16 @@ Laplacian 重建与 fusion 尚未实现。
 
 TIFF/JPEG 有 ICC 时由 LittleCMS 转到线性工作空间，无 ICC 明确假定 sRGB 并在
 诊断中说明；TIFF 有独立 transfer-function tag 而无 ICC 时拒绝，避免误猜。
-TIFF 的 tiled、planar、alpha、浮点与其他 orientation 暂不支持。
+legacy TIFF reader 的 tiled、planar、alpha、浮点与其他 orientation 暂不支持；独立
+`read_working_tiff` 支持本项目有明确 encoding/provenance 与匹配 ICC 的 float32 TIFF。
 
 **场景线性与显示线性有区别。** CR3 路径是从 RAW 开发得到的相对场景线性近似；
 当前 LibRaw 16-bit 中间结果可能已裁掉高光或负值，float32 容器不能恢复这些信息。
 TIFF/JPEG 的逆 transfer/ICC 转换只得到线性 RGB，不能撤销相机 tone curve、
 局部处理、降噪与锐化。`decoded_image.origin` 保留这一区别，不能把 JPEG
-当作真正 scene-linear RAW。真正高动态范围 RAW float 开发是后续明确改进项；focus-stack 当前只接受
-rendered TIFF/JPEG，输出为 streaming 16-bit TIFF。`rendered_image_size` 为 decode
+当作真正 scene-linear RAW。v1.2 新增的 float RAW path 绕开 integer RGB intermediate，详见
+[RAW 契约](raw-pipeline.md)；focus-stack 按 input origin 选择 streaming float32 Rec.2020
+或 16-bit sRGB TIFF。`rendered_image_size` 为 decode
 预算预检读取尺寸，JPEG header 路径最多接收 256 MiB 文件。
 
 输出由 `photo_ops.output` 在目标同目录 `mkstemp`，encoder 完成并关闭后 fsync，

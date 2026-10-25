@@ -52,4 +52,12 @@ result<void> write_image(const std::string &path, image_view<const linear_rgb> p
 
 /// Report whether this build includes the optional OpenEXR backend.
 bool exr_available() noexcept;
+/// Lossless working storage: float32 linear RGB TIFF + matching ICC and provenance tag.
+/// Signed/HDR values are preserved. Encoding is mandatory; no rendering or gamut clipping.
+using working_row_reader = std::function<result<void>(std::size_t, std::span<rgb_f32>)>;
+result<void> write_working_tiff_rows(const std::string &path, extent dimensions,
+                                     const color_encoding &encoding,
+                                     const working_row_reader &read_row);
+/// Reads the explicit working TIFF format above; rejects unknown/contradictory ICC metadata.
+result<working_image> read_working_tiff(const std::string &path);
 } // namespace photo_ops

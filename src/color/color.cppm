@@ -44,4 +44,49 @@ linear_rgb from_oklab(oklab p) noexcept {
           -1.2684380046f * l * l * l + 2.6097574011f * m * m * m - 0.3413193965f * s * s * s,
           -0.0041960863f * l * l * l - 0.7034186147f * m * m * m + 1.7076147010f * s * s * s};
 }
+
+/// Tristimulus values relative to the D65 reference white; signed/HDR values are valid.
+struct xyz_d65 {
+  float x{}, y{}, z{};
+};
+
+xyz_d65 to_xyz(rgb_f32 p, const color_encoding &encoding) noexcept {
+  if (encoding.primaries == rgb_primaries::rec2020)
+    return {.636958048f * p.r + .144616904f * p.g + .168880975f * p.b,
+            .262700212f * p.r + .677998072f * p.g + .059301716f * p.b,
+            .028072693f * p.g + 1.060985058f * p.b};
+  return {.412390799f * p.r + .357584339f * p.g + .180480788f * p.b,
+          .212639006f * p.r + .715168679f * p.g + .072192315f * p.b,
+          .019330819f * p.r + .119194780f * p.g + .950532152f * p.b};
+}
+
+rgb_f32 from_xyz(xyz_d65 p, const color_encoding &encoding) noexcept {
+  if (encoding.primaries == rgb_primaries::rec2020)
+    return {1.716651188f * p.x - .355670784f * p.y - .253366281f * p.z,
+            -.666684352f * p.x + 1.616481237f * p.y + .015768546f * p.z,
+            .017639857f * p.x - .042770613f * p.y + .942103121f * p.z};
+  return {3.240969942f * p.x - 1.537383178f * p.y - .498610760f * p.z,
+          -.969243636f * p.x + 1.875967502f * p.y + .041555057f * p.z,
+          .055630080f * p.x - .203976959f * p.y + 1.056971514f * p.z};
+}
+
+float luminance(rgb_f32 p, const color_encoding &encoding) noexcept {
+  return to_xyz(p, encoding).y;
+}
+
+/// Explicit, unclipped working-to-preview conversion. Rendering/quantization is separate.
+linear_rgb to_linear_srgb(rgb_f32 p, const color_encoding &encoding) noexcept {
+  const auto rgb = from_xyz(to_xyz(p, encoding), color_encoding{rgb_primaries::srgb});
+  return {rgb.r, rgb.g, rgb.b};
+}
+
+oklab to_oklab(rgb_f32 p, const color_encoding &encoding) noexcept {
+  return to_oklab(to_linear_srgb(p, encoding));
+}
+
+rgb_f32 from_oklab(oklab p, const color_encoding &encoding) noexcept {
+  const auto rgb = from_oklab(p);
+  return from_xyz(to_xyz(rgb_f32{rgb.r, rgb.g, rgb.b}, color_encoding{rgb_primaries::srgb}),
+                  encoding);
+}
 } // namespace photo_ops

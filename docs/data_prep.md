@@ -257,3 +257,14 @@ full-resolution fusion
 
 已有 repo 中的第三方 / 下载 fixture 与本文规划的“用户自行拍摄 R8 canonical corpus”是两套概念。
 后续每完成一组采集，应更新 manifest / provenance，而不是只修改本文把计划描述成事实。
+
+## v1.2 工程验证补充（不代表完成上述采集）
+
+已增加固定 SHA-256 / CC0 provenance 的 R8 RAW 与 CRAW **单张**下载 manifest，
+以及可 opt-in 的 float decoder 检查，见 [fixtures](fixtures.md)。它们可验证相机
+模式与 full-resolution 资源模型，重复同一输入可用于性能／identity；不能被登记为
+已采集的静态 breathing、遮挡、手持或广角 focus brackets。
+
+目前数值契约由 deterministic Bayer DNG fixtures 覆盖；真实三帧 Canon R5 II
+macro 连续前缀已完成 float/context 合成。风景质量与用户自摄 R8 bracket 的验收
+仍需要按本文原计划提供素材。

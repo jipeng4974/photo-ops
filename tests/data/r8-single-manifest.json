@@ -1,0 +1,21 @@
+{
+  "version": 1,
+  "files": [
+    {
+      "path": "rawpixls/6585-eos-r8-raw.CR3",
+      "url": "https://raw.pixls.us/getfile.php/6585/nice/Canon%20-%20EOS%20R8%20-%203:2.CR3",
+      "sha256": "7d5c6dbb11ff7e6ee58715d90a20f5d801e8b103f4711ff6ea329ceafcef254c",
+      "group": "cr3",
+      "source": "raw.pixls.us sample 6585; Canon EOS R8, RAW Full Frame; CC0 1.0",
+      "purpose": "single-image decoder and 24 MP repeated-input performance/identity fixture; not a focus bracket"
+    },
+    {
+      "path": "rawpixls/6587-eos-r8-craw.CR3",
+      "url": "https://raw.pixls.us/getfile.php/6587/nice/Canon%20-%20EOS%20R8%20-%203:2.CR3",
+      "sha256": "df33cf394573645ce03dea1b2e9f0b5cc2b7734e9e3391ee7114151414cf2812",
+      "group": "cr3",
+      "source": "raw.pixls.us sample 6587; Canon EOS R8, CRAW Full Frame; CC0 1.0",
+      "purpose": "single-image decoder and 24 MP repeated-input performance/identity fixture; not a focus bracket"
+    }
+  ]
+}

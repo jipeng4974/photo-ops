@@ -1,11 +1,13 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 module;
 #include <cstddef>
+#include <optional>
 #include <span>
 #include <string>
 #include <vector>
 export module photo_ops.focus_stack;
 import photo_ops.image;
+export import photo_ops.raw;
 export import photo_ops.error;
 
 export namespace photo_ops {
@@ -33,6 +35,7 @@ struct focus_stack_options {
 struct focus_stack_frame_report {
   focus_stack_alignment alignment;
   double selected_fraction = 0;
+  raw_frame_statistics raw_statistics;
 };
 
 struct focus_stack_report {
@@ -43,14 +46,15 @@ struct focus_stack_report {
   std::size_t estimated_peak_bytes = 0, scratch_bytes = 0;
   double motion_fraction = 0, low_confidence_fraction = 0;
   std::vector<focus_stack_frame_report> frames;
+  color_encoding encoding{rgb_primaries::srgb};
+  std::optional<raw_sequence_context> raw_context;
 };
 
-/// Stack consistently developed, same-sized RGB TIFF/JPEG frames into atomic 16-bit TIFF.
-/// Working pixels are explicitly float32 linear-sRGB/D65, rendered provenance; no RAW
-/// development or implicit exposure/WB matching. CR3 is rejected until its float/context
-/// pipeline exists. Memory is planned before decode; full-resolution frames spool to disk.
-/// Registration, coherent selection, motion fallback and tiled multiband fusion belong to
-/// this one module. The reference frame supplies uncovered borders and motion regions.
+/// Stack same-sized rendered TIFF/JPEG or compatible RAW Bayer brackets atomically.
+/// RAW uses one frozen context, signed scene-linear Rec.2020/D65 and float32 ICC TIFF.
+/// Rendered RGB retains the compatibility linear-sRGB / 16-bit TIFF output path.
+/// Memory is planned before unpack/decode; full-resolution frames spool sequentially.
+/// The reference supplies uncovered borders and motion regions. Mixed RAW/rendered fails.
 result<focus_stack_report> stack_focus(std::span<const std::string> inputs,
                                        const std::string &output,
                                        const focus_stack_options &options = {});
