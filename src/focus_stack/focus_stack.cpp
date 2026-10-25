@@ -533,6 +533,7 @@ result<void> diagnostics(const std::string &directory, const coherent_maps &maps
        << ",\n  \"height\": " << report.dimensions.height
        << ",\n  \"tile_size\": " << report.tile_size << ",\n  \"halo\": " << halo
        << ",\n  \"proxy_step\": " << report.proxy_step
+       << ",\n  \"refinement_step\": " << report.refinement_step
        << ",\n  \"estimated_peak_bytes\": " << report.estimated_peak_bytes
        << ",\n  \"scratch_bytes\": " << report.scratch_bytes
        << ",\n  \"motion_fraction\": " << report.motion_fraction
@@ -544,6 +545,10 @@ result<void> diagnostics(const std::string &directory, const coherent_maps &maps
     file << "    {\"index\":" << i << ",\"a\":" << t.a << ",\"b\":" << t.b << ",\"tx\":" << t.tx
          << ",\"ty\":" << t.ty << ",\"matches\":" << t.matches << ",\"inliers\":" << t.inliers
          << ",\"residual_px\":" << t.residual_px
+         << ",\"dense_residual_px\":" << t.dense_residual_px
+         << ",\"dense_correlation\":" << t.dense_correlation
+         << ",\"refinement_samples\":" << t.refinement_samples
+         << ",\"refined\":" << (t.refined ? "true" : "false")
          << ",\"selected_fraction\":" << f.selected_fraction << '}'
          << (i + 1 == report.frames.size() ? "\n" : ",\n");
   }
@@ -634,11 +639,20 @@ result<focus_stack_report> stack_focus(std::span<const std::string> inputs,
                   "minimum proxy/tile workspace exceeds budget");
     }
   }
+  auto refinement_step = std::max<std::size_t>(1, step / 2);
+  auto refinement_pixels = [&] {
+    return ((size.width + refinement_step - 1) / refinement_step) *
+           ((size.height + refinement_step - 1) / refinement_step);
+  };
+  while (128 * refinement_pixels() + 128 * mib > usable)
+    ++refinement_step;
+  registration = std::max(registration, 128 * refinement_pixels() + 128 * mib);
   const auto reference = options.reference_index == static_cast<std::size_t>(-1)
                              ? inputs.size() / 2
                              : options.reference_index;
-  const std::size_t scratch_bytes =
-      (inputs.size() + 1) * 12 * pixels + inputs.size() * 20 * q + 6 * pixels;
+  const std::size_t scratch_bytes = (inputs.size() + 1) * 12 * pixels +
+                                    inputs.size() * (20 * q + 4 * refinement_pixels()) +
+                                    6 * pixels;
   ec.clear();
   const auto scratch_parent = options.scratch_directory.empty()
                                   ? fs::temp_directory_path(ec)
@@ -655,9 +669,14 @@ result<focus_stack_report> stack_focus(std::span<const std::string> inputs,
     return fail(error_code::io, "focus scratch", "cannot create private run directory",
                 scratch_parent.string());
   scratch.path = pattern;
-  focus_stack_report report{
-      size,          reference, tile, step, std::max({decode, registration, fusion}) * 5 / 4,
-      scratch_bytes, 0,         0,    {}};
+  focus_stack_report report;
+  report.dimensions = size;
+  report.reference_index = reference;
+  report.tile_size = tile;
+  report.proxy_step = step;
+  report.refinement_step = refinement_step;
+  report.estimated_peak_bytes = std::max({decode, registration, fusion}) * 5 / 4;
+  report.scratch_bytes = scratch_bytes;
   report.frames.resize(inputs.size());
   std::vector<frame> frames(inputs.size());
   for (std::size_t i = 0; i < inputs.size(); ++i) {
@@ -682,6 +701,25 @@ result<focus_stack_report> stack_focus(std::span<const std::string> inputs,
             std::max({std::abs(p.r), std::abs(p.g), std::abs(p.b)}) > 16)
           return fail(error_code::invalid_argument, "focus input",
                       "non-finite or excessive rendered RGB range", inputs[i]);
+    const auto fine_size = extent{(size.width + refinement_step - 1) / refinement_step,
+                                  (size.height + refinement_step - 1) / refinement_step};
+    image<gray> fine(fine_size);
+    for (std::size_t y = 0; y < fine.size().height; ++y)
+      for (std::size_t x = 0; x < fine.size().width; ++x) {
+        double sum = 0;
+        std::size_t count = 0;
+        for (std::size_t sy = y * refinement_step;
+             sy < std::min((y + 1) * refinement_step, size.height); ++sy)
+          for (std::size_t sx = x * refinement_step;
+               sx < std::min((x + 1) * refinement_step, size.width); ++sx) {
+            sum += luminance(decoded->pixels.view().at(sx, sy));
+            ++count;
+          }
+        fine.view().at(x, y).value = sum / count;
+      }
+    if (auto saved = save<gray>(frames[i].pixels.string() + ".fine", fine.view()); !saved)
+      return std::unexpected(saved.error());
+    fine = {};
     auto colors = proxy(decoded->pixels.view(), step);
     image<gray> small(colors.size());
     for (std::size_t y = 0; y < small.size().height; ++y)
@@ -714,6 +752,36 @@ result<focus_stack_report> stack_focus(std::span<const std::string> inputs,
     report.frames[i].alignment = frames[i].alignment;
   }
   reference_proxy = {};
+  if (!options.already_aligned) {
+    const extent fine_size{(size.width + refinement_step - 1) / refinement_step,
+                           (size.height + refinement_step - 1) / refinement_step};
+    auto fine_ref = read_patch<gray>(frames[reference].pixels.string() + ".fine", fine_size,
+                                     {0, 0, fine_size.width, fine_size.height});
+    if (!fine_ref)
+      return std::unexpected(fine_ref.error());
+    for (std::size_t i = 0; i < inputs.size(); ++i) {
+      if (frames[i].alignment.identity)
+        continue;
+      auto fine = read_patch<gray>(frames[i].pixels.string() + ".fine", fine_size,
+                                   {0, 0, fine_size.width, fine_size.height});
+      if (!fine)
+        return std::unexpected(fine.error());
+      auto t = frames[i].alignment;
+      const double center = (refinement_step - 1) * .5;
+      t.tx = (t.tx - center + (t.a - t.b) * center) / refinement_step;
+      t.ty = (t.ty - center + (t.a + t.b) * center) / refinement_step;
+      auto refined = detail::refine_focus_stack(fine_ref->view(), fine->view(), t);
+      if (!refined)
+        return std::unexpected(error{refined.error().code, refined.error().operation,
+                                     refined.error().message, inputs[i]});
+      t = *refined;
+      t.tx = refinement_step * t.tx + center - (t.a - t.b) * center;
+      t.ty = refinement_step * t.ty + center - (t.a + t.b) * center;
+      t.dense_residual_px *= refinement_step;
+      frames[i].alignment = t;
+      report.frames[i].alignment = t;
+    }
+  }
   auto maps = analyze(frames, size, step, reference);
   if (!maps)
     return std::unexpected(maps.error());

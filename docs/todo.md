@@ -190,3 +190,11 @@ P1-3 performance optimization
 3. **Defocus-aware fusion**：坐标和颜色都一致后，哪些 frame 在深度边界处真正提供有效清晰信息？
 
 性能优化放在正确性之后，但在 full-resolution Canon workflow 稳定前完成。
+
+## 实施记录（2026-10-25）
+
+- **P0-2 / v1.1.0**：已接入预算内的高分辨率四参数 direct refinement；新增
+  dense gradient 指标与 fractional translation / 正反 breathing、rotation 回归。
+  具体语义与验收边界见 [focus-stack](focus-stack.md)。
+- P1-1、P1-2、P1-3 按上述顺序继续；R8 自摄 corpus 仍待真实拍摄，不能由第三方
+  Canon 或 synthetic fixtures 替代该项验收。

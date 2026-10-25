@@ -1,11 +1,13 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 module;
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <cstdint>
 #include <opencv2/core.hpp>
 #include <opencv2/features.hpp>
 #include <opencv2/geometry.hpp>
+#include <opencv2/imgproc.hpp>
 #include <vector>
 module photo_ops.focus_stack;
 import photo_ops.image;
@@ -116,6 +118,136 @@ result<focus_stack_alignment> align_focus_stack(image_view<const gray> reference
     return result;
   } catch (const cv::Exception &e) {
     return fail(error_code::decode, "focus registration", e.what());
+  }
+}
+
+namespace {
+cv::Mat normalized_image(image_view<const gray> src, double sigma) {
+  cv::Mat pixels(src.size().height, src.size().width, CV_32F);
+  for (std::size_t y = 0; y < src.size().height; ++y)
+    for (std::size_t x = 0; x < src.size().width; ++x)
+      pixels.at<float>(y, x) = src.at(x, y).value;
+  cv::GaussianBlur(pixels, pixels, {}, sigma, sigma, cv::BORDER_REPLICATE);
+  cv::Scalar mean, deviation;
+  cv::meanStdDev(pixels, mean, deviation);
+  pixels = (pixels - mean[0]) / std::max(deviation[0], 1e-6);
+  return pixels;
+}
+
+double sample(const cv::Mat &image, double x, double y) {
+  const int ix = static_cast<int>(x), iy = static_cast<int>(y);
+  const double fx = x - ix, fy = y - iy;
+  return (1 - fy) * ((1 - fx) * image.at<float>(iy, ix) + fx * image.at<float>(iy, ix + 1)) +
+         fy * ((1 - fx) * image.at<float>(iy + 1, ix) + fx * image.at<float>(iy + 1, ix + 1));
+}
+
+struct direct_evidence {
+  cv::Matx44d hessian = cv::Matx44d::zeros();
+  cv::Vec4d rhs{};
+  double loss = 0, error = 0, gradient = 0, cross = 0, ref_square = 0, src_square = 0;
+  std::size_t samples = 0;
+};
+
+direct_evidence evaluate(const cv::Mat &reference, const cv::Mat &source, const cv::Mat &gx,
+                         const cv::Mat &gy, const focus_stack_alignment &t) {
+  direct_evidence out;
+  const double cx = (source.cols - 1) * .5, cy = (source.rows - 1) * .5;
+  const double radius = std::max(source.cols, source.rows) * .5;
+  const int stride = std::max(1, static_cast<int>(std::sqrt(source.total() / 250000.)));
+  for (int y = 8; y < source.rows - 8; y += stride)
+    for (int x = 8; x < source.cols - 8; x += stride) {
+      const double rx = t.a * x - t.b * y + t.tx, ry = t.b * x + t.a * y + t.ty;
+      if (rx < 8 || ry < 8 || rx >= reference.cols - 9 || ry >= reference.rows - 9)
+        continue;
+      const double dx = sample(gx, rx, ry), dy = sample(gy, rx, ry);
+      if (dx * dx + dy * dy < .0004)
+        continue;
+      const double r = sample(reference, rx, ry), s = source.at<float>(y, x);
+      const double error = r - s;
+      // Huber weighting limits moving objects, occlusions and changing defocus evidence.
+      const double weight = std::min(1., .15 / std::max(std::abs(error), 1e-12));
+      const double u = (x - cx) / radius, v = (y - cy) / radius;
+      const cv::Vec4d j(dx, dy, dx * u + dy * v, -dx * v + dy * u);
+      out.hessian += weight * (j * j.t());
+      out.rhs += weight * error * j;
+      out.loss += std::abs(error) <= .15 ? .5 * error * error : .15 * (std::abs(error) - .075);
+      out.error += weight * error * error;
+      out.gradient += weight * (dx * dx + dy * dy);
+      out.cross += r * s;
+      out.ref_square += r * r;
+      out.src_square += s * s;
+      ++out.samples;
+    }
+  if (out.samples)
+    out.loss /= out.samples;
+  return out;
+}
+} // namespace
+
+result<focus_stack_alignment> refine_focus_stack(image_view<const gray> reference,
+                                                 image_view<const gray> source,
+                                                 focus_stack_alignment initial) {
+  try {
+    auto t = initial;
+    for (double sigma : {3., 1.5, .75}) {
+      const auto ref = normalized_image(reference, sigma),
+                 src = normalized_image(source, sigma);
+      cv::Mat gx, gy;
+      cv::Sobel(ref, gx, CV_32F, 1, 0, 3, 1. / 8, 0, cv::BORDER_REPLICATE);
+      cv::Sobel(ref, gy, CV_32F, 0, 1, 3, 1. / 8, 0, cv::BORDER_REPLICATE);
+      auto evidence = evaluate(ref, src, gx, gy, t);
+      if (evidence.samples < 64)
+        return fail(error_code::decode, "focus refinement",
+                    "insufficient dense gradient evidence");
+      for (int iteration = 0; iteration < 25; ++iteration) {
+        cv::Vec4d delta;
+        if (!cv::solve(evidence.hessian, -evidence.rhs, delta, cv::DECOMP_CHOLESKY))
+          return fail(error_code::decode, "focus refinement",
+                      "ill-conditioned similarity refinement");
+        const double magnitude = cv::norm(delta);
+        if (!std::isfinite(magnitude) || magnitude > 10)
+          break;
+        if (magnitude < 1e-5)
+          break;
+        bool improved = false;
+        for (double rate : {1., .5, .25, .125}) {
+          auto candidate = t;
+          const double radius = std::max(src.cols, src.rows) * .5;
+          const double da = rate * delta[2] / radius, db = rate * delta[3] / radius;
+          candidate.a += da;
+          candidate.b += db;
+          candidate.tx += rate * delta[0] - da * (src.cols - 1) * .5 + db * (src.rows - 1) * .5;
+          candidate.ty += rate * delta[1] - db * (src.cols - 1) * .5 - da * (src.rows - 1) * .5;
+          auto next = evaluate(ref, src, gx, gy, candidate);
+          if (next.samples >= evidence.samples * .95 && next.loss < evidence.loss) {
+            t = candidate;
+            evidence = next;
+            improved = true;
+            break;
+          }
+        }
+        if (!improved)
+          break;
+      }
+      t.refinement_samples = evidence.samples;
+      t.dense_residual_px = std::sqrt(2 * evidence.error / std::max(evidence.gradient, 1e-12));
+      t.dense_correlation =
+          evidence.cross /
+          std::sqrt(std::max(evidence.ref_square * evidence.src_square, 1e-12));
+    }
+    // Keep the feature consensus basin and the four-parameter geometry contract.
+    const double radius = std::max(reference.size().width, reference.size().height);
+    const double correction = std::hypot(t.tx - initial.tx, t.ty - initial.ty) +
+                              radius * std::hypot(t.a - initial.a, t.b - initial.b);
+    if (!std::isfinite(t.dense_residual_px) || t.dense_correlation < .75 || correction > 12 ||
+        std::hypot(t.a, t.b) < .9 || std::hypot(t.a, t.b) > 1.1 ||
+        std::abs(std::atan2(t.b, t.a)) > .1)
+      return fail(error_code::decode, "focus refinement",
+                  "inconsistent dense alignment or excessive correction");
+    t.refined = true;
+    return t;
+  } catch (const cv::Exception &e) {
+    return fail(error_code::decode, "focus refinement", e.what());
   }
 }
 } // namespace photo_ops::detail

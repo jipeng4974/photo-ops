@@ -109,11 +109,40 @@ void registration_tests() {
         "stack diagnostics must recover rotation and breathing");
   check(transform.inliers >= 8 && transform.residual_px < 2,
         "stack diagnostics must expose similarity consensus and full-res residual");
+  check(stacked.refinement_step == 1 && transform.refined && transform.refinement_samples > 100,
+        "alignment must refine on a higher-resolution proxy with dense evidence");
+  for (double y : {32., 160., 288.})
+    for (double x : {32., 200., 368.}) {
+      const double dx = (transform.a - a) * x - (transform.b - b) * y + transform.tx - 3;
+      const double dy = (transform.b - b) * x + (transform.a - a) * y + transform.ty + 2;
+      check(std::hypot(dx, dy) < .15,
+            "refined breathing/rotation must have subpixel full-res geometric error");
+    }
+  check(transform.dense_residual_px < .7 && transform.dense_correlation > .99,
+        "dense post-registration evidence must agree with known synthetic geometry");
   const auto again =
       take(p::stack_focus(sequence, (temp.path / "again.tif").string(), options));
   check(transform.a == again.frames[1].alignment.a &&
             transform.tx == again.frames[1].alignment.tx,
         "stack registration must be deterministic");
+
+  // The opposite breathing/rotation direction plus fractional-pixel motion.
+  const double small_a = .997 * std::cos(-.002), small_b = .997 * std::sin(-.002);
+  for (std::size_t y = 0; y < 320; ++y)
+    for (std::size_t x = 0; x < 400; ++x) {
+      const float v = scene(small_a * x - small_b * y + .31, small_b * x + small_a * y - .27);
+      src_rgb.view().at(x, y) = {v, v, v};
+    }
+  const auto fractional = (temp.path / "fractional.tif").string();
+  done(p::write_image(fractional, src_rgb.view()));
+  const auto micro = take(p::stack_focus(std::vector<std::string>{sequence[0], fractional},
+                                         (temp.path / "micro.tif").string(), options));
+  const auto &m = micro.frames[1].alignment;
+  for (double y : {32., 288.})
+    for (double x : {32., 368.})
+      check(std::hypot((m.a - small_a) * x - (m.b - small_b) * y + m.tx - .31,
+                       (m.b - small_b) * x + (m.a - small_a) * y + m.ty + .27) < .15,
+            "subpixel translation and opposite rotation/breathing must be recovered");
 
   p::image<p::linear_rgb> flat({64, 64}), other({64, 64});
   for (std::size_t y = 0; y < 64; ++y)

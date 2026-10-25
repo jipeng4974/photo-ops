@@ -45,7 +45,7 @@ for all options.
 
 ## API
 
-Version **1.0.0** keeps two photographic entry points: `enhance_sunlight(...)` and
+Version **1.1.0** keeps two photographic entry points: `enhance_sunlight(...)` and
 `stack_focus(...)`.
 
 **Breaking change:** `align_focus_stack(...)` is no longer exported. Call

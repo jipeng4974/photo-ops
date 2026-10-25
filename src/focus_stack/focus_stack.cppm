@@ -13,7 +13,10 @@ export namespace photo_ops {
 struct focus_stack_alignment {
   double a = 1, b = 0, tx = 0, ty = 0;
   double residual_px = 0;
+  double dense_residual_px = 0, dense_correlation = 1;
   std::size_t matches = 0, inliers = 0;
+  std::size_t refinement_samples = 0;
+  bool refined = false;
   bool identity = true;
 };
 
@@ -36,6 +39,7 @@ struct focus_stack_report {
   extent dimensions;
   std::size_t reference_index = 0;
   std::size_t tile_size = 0, proxy_step = 0;
+  std::size_t refinement_step = 0;
   std::size_t estimated_peak_bytes = 0, scratch_bytes = 0;
   double motion_fraction = 0, low_confidence_fraction = 0;
   std::vector<focus_stack_frame_report> frames;
@@ -58,5 +62,8 @@ namespace photo_ops::detail {
 /// Rejects insufficient evidence and excessive deformation instead of guessing identity.
 result<focus_stack_alignment> align_focus_stack(image_view<const gray> reference,
                                                 image_view<const gray> source);
+result<focus_stack_alignment> refine_focus_stack(image_view<const gray> reference,
+                                                 image_view<const gray> source,
+                                                 focus_stack_alignment initial);
 
 } // namespace photo_ops::detail

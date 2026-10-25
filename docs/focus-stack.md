@@ -26,6 +26,29 @@ RAW 的 wide-gamut float / `raw_sequence_context` 仍未实现，**CR3 明确拒
 用户需在外部开发阶段统一这些参数，rendered 像素无法还原 RAW 一致性证据。
 streaming JPEG/EXR 输出留待后续，避免为输出重新分配完整 RGB 图。
 
+## v1.1 精配准
+
+SIFT/RANSAC 保留为 coarse initialization。顺序解码时另外写入更高分辨率的
+亮度 proxy，步长初始为 `max(1, coarse_step/2)`，根据预算可增加；解码结束并释放
+全尺寸图像后，再逐帧执行四参数 similarity direct refinement。三档 Gaussian
+尺度（3 / 1.5 / 0.75 proxy px）与 Huber loss 抑制局部失焦／遮挡的不一致，固定
+迭代上限、line search 与 correction bound 防止离开 coarse basin；不引入 affine
+shear、homography 或 local warp。
+
+报告保留 `residual_px`（coarse feature RMS，full-res 单位），另列
+`dense_residual_px`、`dense_correlation`、`refinement_samples`、`refined` 和
+`refinement_step`。dense residual 为 robust photometric error / gradient energy
+换算的 full-resolution-equivalent 位移量，**不是已知真值的二维坐标误差**；失焦、
+噪声和颜色变化也会使它增大。目标 0.3–0.7 px 是评估量级，不作为所有真实场景的
+永久硬门槛。证据不足、病态 Hessian、低相关或过大修正明确失败。
+
+box proxy 使用中心坐标共轭；最外侧不足一块的 proxy 不用于 direct refinement。
+同一 synthetic Gaussian-spot 场景中，正向 scale=1.015 / rotation=.015 /
+translation=(3,-2) 与反向 scale=.997 / rotation=-.002 / translation=(.31,-.27)
+均要求全图采样点几何误差 <0.15 full-res px，并检查重复运行确定性。
+真实 PCB 与更多失焦／风景案例的 dense residual 应独立解读，不能由 synthetic
+测试推断所有真实图像都达到 0.15 px。
+
 ## 已实现的处理过程
 
 1. 先读 header 尺寸，检查 2..256 帧、同尺寸、32..65536 每边、最多 200 MP；
@@ -76,10 +99,11 @@ Q = proxy pixel count
 T = (tile_size + 2*64)^2
 usable = 0.8 * budget
 single_frame_decode = 24*P + largest_input_file_bytes + 128 MiB
-registration = 512*Q + 128 MiB
+R = refinement proxy pixel count
+registration = max(512*Q, 128*R) + 128 MiB
 coherent_maps_and_fusion = 128*Q + 512*T + 128 MiB
 reported_peak = max(these three stages) / 0.8
-scratch_estimate = 12*(N+1)*P + 20*N*Q + 6*P
+scratch_estimate = 12*(N+1)*P + N*(20*Q + 4*R) + 6*P
 ```
 
 spool、coarse labels 和 metadata 外，RGB resident 工作集不随 N×P 增长。
@@ -236,3 +260,15 @@ downsample 相位。只有真实图像边界使用边界扩展，tile 边界从�
 局部 ghosting/softening，不能据此宣称已经解决 macro occlusion 或风景 motion。
 首版 similarity 残差、低频 motion heuristic 和多尺度 mask 都有适用范围；
 本轮未增加 homography、local flow 或调参到单张照片，也未做 45–60 MP 风景评测。
+
+## v1.1 验证记录（2026-10-25）
+
+release / EXR 关闭的 clean build、C++ 全套回归通过；Python 12 项通过（其中真实
+sunlight opt-in 1 项跳过）。精配准 synthetic 的采样点 full-res 坐标误差 <0.15 px。
+七帧 2048×1536 PCB 在 512 MiB 预算下完成，wall 123.40 s、peak child RSS
+124844 KiB、scratch estimate 370409472 bytes；运行时同机还执行了 debug 对照与
+测试，**该耗时不是独占负载的性能比较**。fine proxy step=2，coarse step=4。
+真实 PCB 的 dense gradient-equivalent residual 为 2.42–5.00 full-res px，相关性
+.918–.986；其中含强失焦与遮挡，不满足理想静态高信息区域的 .3–.7 px 目标，
+不能声称该 macro case 已实现全域 subpixel registration。后续需要按静态清晰区域
+分开评估；指标与真实风景/R8 几何质量仍需更多 fixture 验证。
