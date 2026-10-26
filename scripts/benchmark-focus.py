@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Measure one focus-stack workload with per-child RSS, CPU/wall time and native stage reports."""
+"""Measure focus-stack, HDR or a focus-exposure matrix with per-child resources and native reports."""
 import argparse
 import hashlib
 import json
@@ -27,7 +27,9 @@ def publish_json(path, value):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('inputs', nargs='+', type=Path)
+    parser.add_argument('inputs', nargs='*', type=Path)
+    parser.add_argument('--operator', choices=('focus-stack', 'hdr'), default='focus-stack')
+    parser.add_argument('--matrix', type=Path, help='Explicit focus-exposure manifest; no positional inputs')
     parser.add_argument('--binary', type=Path, default=ROOT/'build/linux/x86_64/release/photo-ops')
     parser.add_argument('--output', required=True, type=Path, help='New measurement directory')
     parser.add_argument('--repeat', type=int, default=1, help='Repeat a single source for identity/resource workloads')
@@ -37,11 +39,17 @@ def main():
     parser.add_argument('--scratch-directory', type=Path)
     parser.add_argument('--aligned', action='store_true')
     args = parser.parse_args()
+    if args.matrix and (args.inputs or args.operator != 'focus-stack' or args.repeat != 1):
+        parser.error('--matrix requires focus-stack, no positional inputs and no --repeat')
+    if args.operator == 'hdr' and args.repeat != 1:
+        parser.error('--repeat is a focus identity/resource workload, not an AEB bracket')
     if args.repeat < 1 or (args.repeat != 1 and len(args.inputs) != 1):
         parser.error('--repeat requires exactly one source and a positive count')
     inputs = [str(path.resolve(strict=True)) for path in args.inputs] * args.repeat
-    if not 2 <= len(inputs) <= 256:
+    if not args.matrix and not 2 <= len(inputs) <= 256:
         parser.error('workload must have 2..256 frames')
+    matrix = args.matrix.resolve(strict=True) if args.matrix else None
+    matrix_hash = hashlib.sha256(matrix.read_bytes()).hexdigest() if matrix else None
     binary = args.binary.resolve(strict=True)
     root = args.output.resolve()
     root.mkdir(parents=True, exist_ok=False)
@@ -52,7 +60,8 @@ def main():
     shutil.copy2(binary, snapshot)
     with snapshot.open('rb') as stream:
         binary_hash = hashlib.file_digest(stream, 'sha256').hexdigest()
-    command = [str(snapshot), 'focus-stack', *inputs, '-o', str(root/'stack.tif'),
+    descriptor = ['--matrix', str(matrix)] if matrix else inputs
+    command = [str(snapshot), args.operator, *descriptor, '-o', str(root/'stack.tif'),
                '--diagnostics', str(root/'diagnostics'), '--scratch-directory', str(scratch),
                '--memory-budget-mib', str(args.memory_budget_mib), '--tile-size', str(args.tile_size),
                '--proxy-long-edge', str(args.proxy_long_edge)]
@@ -75,10 +84,14 @@ def main():
         temporary.unlink()
     report_path = root/'diagnostics/report.json'
     report = json.loads(report_path.read_text()) if report_path.exists() else None
+    frame_count = (sum(len(plane['exposures']) for plane in report['hdr_planes'])
+                   if matrix and report else len(inputs) if not matrix else None)
     summary = dict(binary=str(binary), binary_snapshot=str(snapshot), binary_sha256=binary_hash, command=command,
-                   workload_kind='repeated-single-input' if args.repeat != 1 else 'sequence',
+                   operator=args.operator,
+                   workload_kind='focus-exposure-matrix' if matrix else 'repeated-single-input' if args.repeat != 1 else 'sequence',
                    note='Repeated inputs measure resources/identity, not focus-bracket photographic quality.' if args.repeat != 1 else '',
-                   frames=len(inputs), exit_code=process.returncode, wall_seconds=wall,
+                   matrix=str(matrix) if matrix else None, matrix_sha256=matrix_hash,
+                   frames=frame_count, exit_code=process.returncode, wall_seconds=wall,
                    user_seconds=usage.ru_utime, system_seconds=usage.ru_stime,
                    peak_rss_kib=usage.ru_maxrss, report=report)
     publish_json(root/'summary.json', summary)

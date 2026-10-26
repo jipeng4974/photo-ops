@@ -288,3 +288,7 @@ merge_hdr(...)
 - **v1.8.1 / 回归修复**：新增独立解析式 Gaussian 细纹理 fixture，修复高亮静态失焦
   被跨 focus motion gate 误报的问题；要求强局部 blur fit 与相邻共享结构支持，
   保留真实运动与 HDR deghost veto。没有用调高全局 motion 阈值掩盖失败。
+
+- **v1.9.0 / 检查工具**：提供独立 DNG radiance／Gaussian-defocus／noise fixture 的
+  复现、两个单焦点 HDR 与矩阵的统一显示预览，以及 HDR／matrix per-child 资源记录。
+  这些 synthetic artifacts 不算真实 R8 AEB／2×3 capture。

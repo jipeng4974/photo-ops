@@ -330,3 +330,24 @@ xmake run photo-ops focus-stack /path/to/near.CR3 /path/to/middle.CR3 /path/to/f
 高光与局部画质；把具体失败记录到 expected behavior / regression。manifest 校验
 通过不能替代这些步骤。九项离线 Python 回归覆盖身份／顺序／元数据篡改、路径逃逸、
 atomic publication 与声明校验；测试使用明确标注的 dummy bytes，不冒充真实 CR3。
+
+## HDR／二维 capture 的补充计划（v1.9）
+
+在上述固定曝光 focus fixtures 之外，下一批增加两种明确用途：
+
+1. **同一焦点 AEB**：固定 ISO／aperture／WB／focal length，只改变 shutter，先取
+   三脚架静态高反差场景，再另拍带树叶／水面的 motion case。记录每张实际 shutter、
+   capture 顺序与时间间隔，检查短曝光保高光、长曝光保暗部以及 deghost fallback。
+2. **2 focus × 3 exposure**：手选 near/far 两个关键焦平面，每个各拍一组相同
+   shutter grid 的 AEB。保留整个拍摄顺序；不要依文件名或时间自动推断矩阵。
+   先检查每个单焦点 HDR，再检查二维结果。
+
+这些组不能直接用 v1.5 的固定曝光 focus metadata 模板宣称登记完成。
+原图仍留 repo 外，另记 camera／lens／ISO／aperture／WB、各 shutter、焦平面、
+拍摄顺序、场景标签、版权／公开许可和预期行为；SHA-256 与真实 decoder 检查
+分别保存。运行所需的最小 `capture.json` 只放受支持 schema，拍摄笔记另存文件。
+矩阵格式和 native 命令见 [focus × exposure](focus-exposure.md)，数值／预览／资源
+检查步骤见 [HDR／matrix 检查](hdr-matrix-review.md)。
+
+合成 generator 可验证工具链和资源，但 camera metadata 明确写为独立 fixture；
+不能把它放进自摄 R8 canonical capture 清单。

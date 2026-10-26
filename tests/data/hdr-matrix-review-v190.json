@@ -1,0 +1,455 @@
+{
+  "version": 1,
+  "kind": "synthetic-hdr-matrix-resource-and-quality-review",
+  "date": "2026-10-26",
+  "photographic_core_commit": "064ff06",
+  "budget_mib": 2048,
+  "tile_size": 256,
+  "proxy_long_edge": 1024,
+  "aligned": true,
+  "environment": "Intel i7-9750H; Arch Linux; GCC 16.2; release; EXR off; scalar native image pipeline",
+  "notes": [
+    "Independent synthetic DNG, not actual R8 photographs or sensor calibration.",
+    "One measurement per workload; CPU frequency and OS cache not controlled.",
+    "Small measurements are functional review timings; full-resolution native runs were sequential without concurrent compilation or tests.",
+    "wait4 RSS belongs to the native child, not the NumPy generator/preview renderer.",
+    "Scratch peak is private logical file bytes across stages, not all persistent outputs or filesystem block allocation.",
+    "Quality MAE includes demosaic/noise and excludes transition margins; no fitted exposure/color correction."
+  ],
+  "measurements": [
+    {
+      "artifact_directory": "build/matrix-review-v190-final",
+      "provenance": {
+        "kind": "synthetic-planar-focus-exposure-review",
+        "generator_version": 1,
+        "width": 768,
+        "height": 512,
+        "seed": 180026,
+        "numpy_version": "2.4.6",
+        "pillow_version": "13.0.0",
+        "camera": "Independent Python fixture DNG",
+        "not_real_r8_capture": true,
+        "geometry": "identity; --aligned explicitly asserted",
+        "noise": "3-code read RMS plus sqrt(0.3 * signal_codes) Gaussian RMS",
+        "scene": "grayscale camera signal; three radiance bands; complementary planar defocus",
+        "limitations": [
+          "analytic Gaussian defocus inside planar bands; not an occlusion simulator",
+          "not real sensor noise calibration",
+          "no motion or geometry stress; those have separate native regressions"
+        ],
+        "script_sha256": "d8d97b4c46f1f75cd92fc247acc3f73731416921acd763fa526f8ac97a91f174",
+        "fixture_writer_sha256": "643957787cb3b1cde4ac7c47b8ba5907894a8304e0ddf32e62b5a99190fbfb32",
+        "truth_sha256": "e6f1780a5785dcc559f929a67f2465578284d5419768640f479700b8e014e76e",
+        "files": [
+          {
+            "path": "near-e0.dng",
+            "sha256": "e65460b98edcc85deba81409d8ee7cba5e49daaad9690d615fc7443ff5630825",
+            "bytes": 786976,
+            "focus": "near",
+            "shutter_seconds": 0.0025
+          },
+          {
+            "path": "near-e1.dng",
+            "sha256": "c9a261167185b50a51bd6fe2dbb5737f0c905bf5ff0028bafa94a71c034528d1",
+            "bytes": 786976,
+            "focus": "near",
+            "shutter_seconds": 0.01
+          },
+          {
+            "path": "near-e2.dng",
+            "sha256": "7321361ea34dfbab439cc9f38cbac364337e015c2373d2f75ea0d7b530e06fc3",
+            "bytes": 786976,
+            "focus": "near",
+            "shutter_seconds": 0.04
+          },
+          {
+            "path": "far-e0.dng",
+            "sha256": "fe162842e2e18943ad111f08333a734612d1bec02b2b34aa8a8eba770cc78971",
+            "bytes": 786976,
+            "focus": "far",
+            "shutter_seconds": 0.0025
+          },
+          {
+            "path": "far-e1.dng",
+            "sha256": "071f59d0c734e780127068990c5a6584ae63056c056db13e2abe059ffa178d47",
+            "bytes": 786976,
+            "focus": "far",
+            "shutter_seconds": 0.01
+          },
+          {
+            "path": "far-e2.dng",
+            "sha256": "9fbe7aca6f001f61c9e8426f2c57e083c1b4040628525acf2bba88ece4234424",
+            "bytes": 786976,
+            "focus": "far",
+            "shutter_seconds": 0.04
+          }
+        ],
+        "capture_manifest_sha256": "a668b4b36a8ba3e1cdce5212695d1bf5e2bff577b8f9432f55b2a2e2200f6e05"
+      },
+      "native_measurements": [
+        {
+          "operator": "hdr",
+          "workload_kind": "sequence",
+          "frames": 3,
+          "binary_sha256": "387a6c2095ef64c4406caf5b94051a95aeba93dcbebf32fc61ffabeeab383492",
+          "wall_seconds": 0.960634556999139,
+          "user_seconds": 0.63949,
+          "system_seconds": 0.151132,
+          "peak_rss_kib": 44952,
+          "name": "near-hdr",
+          "estimated_peak_bytes": 419430400,
+          "profile": {
+            "preflight_seconds": 0.014446902,
+            "decode_seconds": 0.220402601,
+            "registration_seconds": 0,
+            "analysis_seconds": 0.264691046,
+            "fusion_seconds": 0.149080584,
+            "output_seconds": 0.114495329,
+            "diagnostics_seconds": 0.157346205,
+            "total_seconds": 0.921063761,
+            "scratch_read_bytes": 81788928,
+            "scratch_write_bytes": 86507520,
+            "scratch_peak_file_bytes": 86507626,
+            "output_bytes": 3442746,
+            "tiles": 6
+          },
+          "deghost_fraction": 0,
+          "clipped_fraction": 0,
+          "low_snr_fraction": 0
+        },
+        {
+          "operator": "hdr",
+          "workload_kind": "sequence",
+          "frames": 3,
+          "binary_sha256": "387a6c2095ef64c4406caf5b94051a95aeba93dcbebf32fc61ffabeeab383492",
+          "wall_seconds": 1.4097220330004347,
+          "user_seconds": 1.002479,
+          "system_seconds": 0.234569,
+          "peak_rss_kib": 45024,
+          "name": "far-hdr",
+          "estimated_peak_bytes": 419430400,
+          "profile": {
+            "preflight_seconds": 0.012826147,
+            "decode_seconds": 0.492118947,
+            "registration_seconds": 0,
+            "analysis_seconds": 0.442119664,
+            "fusion_seconds": 0.14742366,
+            "output_seconds": 0.097152493,
+            "diagnostics_seconds": 0.175113411,
+            "total_seconds": 1.36770836,
+            "scratch_read_bytes": 81788928,
+            "scratch_write_bytes": 86507520,
+            "scratch_peak_file_bytes": 86507626,
+            "output_bytes": 3441946,
+            "tiles": 6
+          },
+          "deghost_fraction": 0,
+          "clipped_fraction": 0,
+          "low_snr_fraction": 0
+        },
+        {
+          "operator": "focus-stack",
+          "workload_kind": "focus-exposure-matrix",
+          "frames": 6,
+          "binary_sha256": "387a6c2095ef64c4406caf5b94051a95aeba93dcbebf32fc61ffabeeab383492",
+          "wall_seconds": 6.196227654996619,
+          "user_seconds": 4.6639669999999995,
+          "system_seconds": 0.599247,
+          "peak_rss_kib": 97164,
+          "name": "matrix",
+          "estimated_peak_bytes": 429260800,
+          "profile": {
+            "preflight_seconds": 0.000310274,
+            "decode_seconds": 0.224711953,
+            "registration_seconds": 0,
+            "analysis_seconds": 1.440078544,
+            "fusion_seconds": 0.655558597,
+            "output_seconds": 0.101932607,
+            "diagnostics_seconds": 1.784377503,
+            "total_seconds": 6.112644916,
+            "scratch_read_seconds": 0.082788778,
+            "scratch_write_seconds": 0.071629378,
+            "warp_seconds": 0.074747214,
+            "focus_score_seconds": 0.125617754,
+            "pyramid_seconds": 0.172666872,
+            "scratch_read_bytes": 110624768,
+            "scratch_write_bytes": 73924608,
+            "scratch_peak_file_bytes": 93509648,
+            "output_bytes": 3607460,
+            "decoded_frames": 2,
+            "tiles": 6,
+            "warp_calls": 12,
+            "focus_evaluations": 14,
+            "peak_tile_cache_bytes": 3932160,
+            "scalar_warp_calls": 12,
+            "hdr_seconds": 1.868407342,
+            "matrix_preflight_seconds": 0.024191307,
+            "hdr_scratch_peak_file_bytes": 93509648
+          },
+          "motion_fraction": 0.0070546468099,
+          "matrix_intermediate_bytes": 7002022,
+          "tile_sources_cached": true
+        }
+      ],
+      "quality": {
+        "kind": "synthetic-planar-review-metrics",
+        "note": "Relative working-RGB MAE against known camera signal transformed by declared calibration; excludes transition margins. No fitted exposure or color correction.",
+        "neutral_working_response": [
+          0.9999998749355039,
+          1.0000006020972179,
+          0.9999995705505983
+        ],
+        "measurements": {
+          "near-hdr": {
+            "all_relative_mae": 0.10059239155067809,
+            "near_relative_mae": 0.01481469666903498,
+            "far_relative_mae": 0.18681124653076414,
+            "shadow_relative_mae": 0.1115806522274236,
+            "highlight_relative_mae": 0.10058542276507333,
+            "minimum": 0.0001499015634180978,
+            "maximum": 2.55869197845459,
+            "tiff_sha256": "14c9fa2c22d6789ce081039cf9615ba4fb6e7e058e93d60e8815ba1198d11c56"
+          },
+          "far-hdr": {
+            "all_relative_mae": 0.10093741342423085,
+            "near_relative_mae": 0.18663162104549239,
+            "far_relative_mae": 0.014802475084775668,
+            "shadow_relative_mae": 0.11193483774800712,
+            "highlight_relative_mae": 0.10092963890025715,
+            "minimum": 0.0009077235590666533,
+            "maximum": 2.573603868484497,
+            "tiff_sha256": "832be0a0b9d8151e708605f486796dd04ff8e1d654c671001c30914d7a656d0d"
+          },
+          "matrix": {
+            "all_relative_mae": 0.015231326360940111,
+            "near_relative_mae": 0.01565918679690507,
+            "far_relative_mae": 0.014801265411749533,
+            "shadow_relative_mae": 0.033727849900678085,
+            "highlight_relative_mae": 0.015280923618065588,
+            "minimum": 0.00041541457176208496,
+            "maximum": 2.5735368728637695,
+            "tiff_sha256": "521a04bc2d31fce7c011150b00ddb6f8990099e2fbaecfea438b2c3cab7842a5"
+          }
+        },
+        "context_fingerprint": "fnv1a64:4ece7a3f9a8e4612"
+      }
+    },
+    {
+      "artifact_directory": "build/matrix-review-v190-24mp",
+      "provenance": {
+        "kind": "synthetic-planar-focus-exposure-review",
+        "generator_version": 1,
+        "width": 6022,
+        "height": 4024,
+        "seed": 180026,
+        "numpy_version": "2.4.6",
+        "pillow_version": "13.0.0",
+        "camera": "Independent Python fixture DNG",
+        "not_real_r8_capture": true,
+        "geometry": "identity; --aligned explicitly asserted",
+        "noise": "3-code read RMS plus sqrt(0.3 * signal_codes) Gaussian RMS",
+        "scene": "grayscale camera signal; three radiance bands; complementary planar defocus",
+        "limitations": [
+          "analytic Gaussian defocus inside planar bands; not an occlusion simulator",
+          "not real sensor noise calibration",
+          "no motion or geometry stress; those have separate native regressions"
+        ],
+        "script_sha256": "d8d97b4c46f1f75cd92fc247acc3f73731416921acd763fa526f8ac97a91f174",
+        "fixture_writer_sha256": "643957787cb3b1cde4ac7c47b8ba5907894a8304e0ddf32e62b5a99190fbfb32",
+        "truth_sha256": "27137bd5fb1d7975153fc19ed97465b063a987dd313756cc9f0f8a88719ccf83",
+        "files": [
+          {
+            "path": "near-e0.dng",
+            "sha256": "5e95e6bb5547855d94cd75042b6d414f2f72aff18ab30f591f426a84a89d4bbc",
+            "bytes": 48465600,
+            "focus": "near",
+            "shutter_seconds": 0.0025
+          },
+          {
+            "path": "near-e1.dng",
+            "sha256": "936c7aca53b5338933bf474511de782782bcd71d1c9d2d7539df0b8453f7e2ea",
+            "bytes": 48465600,
+            "focus": "near",
+            "shutter_seconds": 0.01
+          },
+          {
+            "path": "near-e2.dng",
+            "sha256": "e98e3c15772224155e47f19871bab2d28cce0c2e3ccd2582dcf37975dded239b",
+            "bytes": 48465600,
+            "focus": "near",
+            "shutter_seconds": 0.04
+          },
+          {
+            "path": "far-e0.dng",
+            "sha256": "bab722bf609260483952a00c4b77da0c16702299910cf5e47862a9d938099c42",
+            "bytes": 48465600,
+            "focus": "far",
+            "shutter_seconds": 0.0025
+          },
+          {
+            "path": "far-e1.dng",
+            "sha256": "1cabf8f81a7a53bb44d65e6744c73c5f439db061f73c9610eec84f0591ad918d",
+            "bytes": 48465600,
+            "focus": "far",
+            "shutter_seconds": 0.01
+          },
+          {
+            "path": "far-e2.dng",
+            "sha256": "1879e235c559997fc2139412f59672987bdb1be6d5c789497e264178e5987c97",
+            "bytes": 48465600,
+            "focus": "far",
+            "shutter_seconds": 0.04
+          }
+        ],
+        "capture_manifest_sha256": "a668b4b36a8ba3e1cdce5212695d1bf5e2bff577b8f9432f55b2a2e2200f6e05"
+      },
+      "native_measurements": [
+        {
+          "operator": "hdr",
+          "workload_kind": "sequence",
+          "frames": 3,
+          "binary_sha256": "387a6c2095ef64c4406caf5b94051a95aeba93dcbebf32fc61ffabeeab383492",
+          "wall_seconds": 33.05604601399682,
+          "user_seconds": 25.4859,
+          "system_seconds": 5.393213,
+          "peak_rss_kib": 747584,
+          "name": "near-hdr",
+          "estimated_peak_bytes": 1850078000,
+          "profile": {
+            "preflight_seconds": 0.882411721,
+            "decode_seconds": 9.469080318,
+            "registration_seconds": 0,
+            "analysis_seconds": 0.43524001,
+            "fusion_seconds": 12.912500187,
+            "output_seconds": 5.009714857,
+            "diagnostics_seconds": 1.957819887,
+            "total_seconds": 30.667961941,
+            "scratch_read_bytes": 2213304544,
+            "scratch_write_bytes": 2245641376,
+            "scratch_peak_file_bytes": 2245641482,
+            "output_bytes": 195500818,
+            "tiles": 384
+          },
+          "deghost_fraction": 0,
+          "clipped_fraction": 0,
+          "low_snr_fraction": 0
+        },
+        {
+          "operator": "hdr",
+          "workload_kind": "sequence",
+          "frames": 3,
+          "binary_sha256": "387a6c2095ef64c4406caf5b94051a95aeba93dcbebf32fc61ffabeeab383492",
+          "wall_seconds": 34.71372295400215,
+          "user_seconds": 26.410339,
+          "system_seconds": 5.959203,
+          "peak_rss_kib": 747740,
+          "name": "far-hdr",
+          "estimated_peak_bytes": 1850078000,
+          "profile": {
+            "preflight_seconds": 0.814231847,
+            "decode_seconds": 9.550924476,
+            "registration_seconds": 0,
+            "analysis_seconds": 0.437395019,
+            "fusion_seconds": 15.037793025,
+            "output_seconds": 4.438086789,
+            "diagnostics_seconds": 1.900412528,
+            "total_seconds": 32.180272618,
+            "scratch_read_bytes": 2213304544,
+            "scratch_write_bytes": 2245641376,
+            "scratch_peak_file_bytes": 2245641482,
+            "output_bytes": 195500088,
+            "tiles": 384
+          },
+          "deghost_fraction": 0,
+          "clipped_fraction": 0,
+          "low_snr_fraction": 0
+        },
+        {
+          "operator": "focus-stack",
+          "workload_kind": "focus-exposure-matrix",
+          "frames": 6,
+          "binary_sha256": "387a6c2095ef64c4406caf5b94051a95aeba93dcbebf32fc61ffabeeab383492",
+          "wall_seconds": 137.50340641900402,
+          "user_seconds": 117.538333,
+          "system_seconds": 14.834529,
+          "peak_rss_kib": 748636,
+          "name": "matrix",
+          "estimated_peak_bytes": 1850078000,
+          "profile": {
+            "preflight_seconds": 0.000121598,
+            "decode_seconds": 6.392597691,
+            "registration_seconds": 0,
+            "analysis_seconds": 1.69686736,
+            "fusion_seconds": 57.058536109,
+            "output_seconds": 5.055568712,
+            "diagnostics_seconds": 2.421654795,
+            "total_seconds": 137.096117086,
+            "scratch_read_seconds": 2.845642183,
+            "scratch_write_seconds": 1.705245586,
+            "warp_seconds": 6.435713275,
+            "focus_score_seconds": 9.799950383,
+            "pyramid_seconds": 14.57511388,
+            "scratch_read_bytes": 3333176432,
+            "scratch_write_bytes": 1744822400,
+            "scratch_peak_file_bytes": 2638495224,
+            "output_bytes": 207677660,
+            "decoded_frames": 2,
+            "tiles": 384,
+            "warp_calls": 768,
+            "focus_evaluations": 770,
+            "peak_tile_cache_bytes": 4718592,
+            "scalar_warp_calls": 768,
+            "hdr_seconds": 62.899517947,
+            "matrix_preflight_seconds": 1.550568763,
+            "hdr_scratch_peak_file_bytes": 2638495224
+          },
+          "motion_fraction": 0,
+          "matrix_intermediate_bytes": 392853742,
+          "tile_sources_cached": true
+        }
+      ],
+      "quality": {
+        "kind": "synthetic-planar-review-metrics",
+        "note": "Relative working-RGB MAE against known camera signal transformed by declared calibration; excludes transition margins. No fitted exposure or color correction.",
+        "neutral_working_response": [
+          0.9999998749355039,
+          1.0000006020972179,
+          0.9999995705505983
+        ],
+        "measurements": {
+          "near-hdr": {
+            "all_relative_mae": 0.10081048231255195,
+            "near_relative_mae": 0.01483968469873004,
+            "far_relative_mae": 0.18682807994712977,
+            "shadow_relative_mae": 0.11151049969053138,
+            "highlight_relative_mae": 0.10082595556397853,
+            "minimum": -0.00012074071855749935,
+            "maximum": 2.6040632724761963,
+            "tiff_sha256": "5985e15f1f2ea54270f525a59c812089db44d71e027d97f7672b3b12510a75c9"
+          },
+          "far-hdr": {
+            "all_relative_mae": 0.10084473923583467,
+            "near_relative_mae": 0.18680474880508727,
+            "far_relative_mae": 0.014837935518526232,
+            "shadow_relative_mae": 0.1115109853234021,
+            "highlight_relative_mae": 0.10085966238796512,
+            "minimum": -0.0012764539569616318,
+            "maximum": 2.5868048667907715,
+            "tiff_sha256": "2b3cd83efbbc100017a81f03d9d07db3e9ae2f2477f280ed7f49740a519c2894"
+          },
+          "matrix": {
+            "all_relative_mae": 0.014837720067034361,
+            "near_relative_mae": 0.014838594798853133,
+            "far_relative_mae": 0.014836844859036835,
+            "shadow_relative_mae": 0.03362387615839307,
+            "highlight_relative_mae": 0.014858279962805043,
+            "minimum": -0.000621311366558075,
+            "maximum": 2.604029655456543,
+            "tiff_sha256": "47c39ccbd3635ad841bfc0cfd70010e2a419580c3c56919bb17d601f2669e72c"
+          }
+        },
+        "context_fingerprint": "fnv1a64:94057afcaade8d6c"
+      }
+    }
+  ]
+}

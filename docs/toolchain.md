@@ -558,3 +558,15 @@ R8 AEB／2×3 摄影验收。
 clean debug + EXR + ASan/UBSan 的 matrix／focus suites 与 CLI／Python 检查通过，
 包括真实变化区域的 exact reference fallback；未发现 sanitizer 错误。matrix planner
 增加 interior evidence workspace，flat focus 原有图像计算与回归数值不变。
+
+## v1.9 检查工具验证
+
+新的 benchmark HDR／matrix adapters 使用标准库，图像生成／预览依赖只在单独
+review Python 环境。恢复 debug + EXR、关闭 sanitizer 后构建通过，启用可选 review
+环境的 31 项 Python 检查通过（1 项可选 sunlight 实拍跳过），覆盖 native decode、
+数据／源码快照 hash、确定性、统一显示预览、per-child 资源和 no-overwrite。
+
+768×512 与 6022×4024 的两个 standalone HDR／完整 2×3 合成都成功，private scratch
+退出后为空；原尺寸 native matrix wall 137.50 秒、peak RSS 731.09 MiB。预览已检查，
+原始 float TIFF 保留 signed／HDR range。影像算法与 v1.8.1 相同，完整 native
+release 与相关 sanitizer 结果沿用上节；本阶段没有为了工具再修改算法。

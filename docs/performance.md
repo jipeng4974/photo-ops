@@ -125,3 +125,11 @@ manifest 一起留在测量记录中，后续需更连续的焦点覆盖／真�
 EXR + ASan/UBSan 构建、完整 C++ 与 CLI／工具链 Python 回归通过，未发现 sanitizer
 错误。可选 sunlight 实拍 Python 检查未启用（其余离线检查通过）。源码格式与本地
 文档链接检查通过。
+
+
+## v1.9 HDR／matrix 测量入口
+
+同一测量工具已支持 `--operator hdr` 与 `--matrix capture.json`，沿用 binary snapshot、
+per-child `wait4` 资源与 atomic summary；矩阵原图帧数按 exposure reports 统计。
+新的 deterministic DNG、统一显示预览、原尺寸测量与真实素材边界见
+[HDR／matrix 检查](hdr-matrix-review.md)。
