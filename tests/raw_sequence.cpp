@@ -215,7 +215,7 @@ void context_and_development() {
   auto again = take(p::prepare_raw_sequence(std::vector<std::string>{first, second}, options));
   check(again.fingerprint() == context.fingerprint(), "context fingerprint must be stable");
   std::vector<p::raw_frame_metadata> metadata(context.frames().begin(), context.frames().end());
-  for (auto category : {0, 1, 2, 3, 4, 5}) {
+  for (auto category : {0, 1, 2, 3, 4, 5, 6, 7}) {
     auto altered = metadata;
     if (category == 0)
       altered[1].black[0] += 1;
@@ -229,6 +229,10 @@ void context_and_development() {
       altered[1].camera += " different mode";
     if (category == 5)
       altered[1].camera_to_xyz[0] += .01;
+    if (category == 6)
+      altered[1].focal_length_mm += .1;
+    if (category == 7)
+      altered[1].lens += "different optic";
     check(!p::prepare_raw_sequence(altered, options),
           "incompatible RAW calibration/exposure must reject before development");
   }

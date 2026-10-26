@@ -1,9 +1,12 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
+#include <algorithm>
+#include <cctype>
 #include <charconv>
 #include <cmath>
 #include <expected>
 #include <filesystem>
 #include <iostream>
+#include <limits>
 #include <span>
 #include <string>
 #include <string_view>
@@ -13,6 +16,7 @@ import photo_ops.io;
 import photo_ops.diagnostics;
 import photo_ops.sunlight;
 import photo_ops.focus_stack;
+import photo_ops.hdr;
 
 namespace {
 namespace photo = photo_ops;
@@ -53,7 +57,8 @@ photo::result<arguments> parse_arguments(std::span<char *> tokens) {
   parsed.input = tokens[1];
   parsed.inputs.push_back(parsed.input);
   if (parsed.command != "inspect" && parsed.command != "convert" &&
-      parsed.command != "sunlight-enhance" && parsed.command != "focus-stack")
+      parsed.command != "sunlight-enhance" && parsed.command != "focus-stack" &&
+      parsed.command != "hdr")
     return photo::fail(photo::error_code::invalid_argument, "parse arguments",
                        "unknown command: " + parsed.command);
 
@@ -99,7 +104,8 @@ photo::result<arguments> parse_arguments(std::span<char *> tokens) {
       if (option == "--reference")
         parsed.focus.reference_index = value;
       parsed.focus_options_specified = true;
-    } else if (parsed.command == "focus-stack" && !option.starts_with('-')) {
+    } else if ((parsed.command == "focus-stack" || parsed.command == "hdr") &&
+               !option.starts_with('-')) {
       parsed.inputs.emplace_back(option);
     } else {
       return photo::fail(photo::error_code::invalid_argument, "parse arguments",
@@ -118,15 +124,17 @@ photo::result<arguments> parse_arguments(std::span<char *> tokens) {
     return photo::fail(photo::error_code::invalid_argument, "parse arguments",
                        "--strength requires sunlight-enhance");
   if (!parsed.diagnostics.empty() && parsed.command != "sunlight-enhance" &&
-      parsed.command != "focus-stack")
+      parsed.command != "focus-stack" && parsed.command != "hdr")
     return photo::fail(photo::error_code::invalid_argument, "parse arguments",
-                       "--diagnostics requires sunlight-enhance or focus-stack");
-  if (parsed.focus_options_specified && parsed.command != "focus-stack")
+                       "--diagnostics requires sunlight-enhance, focus-stack or hdr");
+  if (parsed.focus_options_specified && parsed.command != "focus-stack" &&
+      parsed.command != "hdr")
     return photo::fail(photo::error_code::invalid_argument, "parse arguments",
-                       "focus-stack options require focus-stack");
-  if (parsed.command == "focus-stack" && (parsed.inputs.size() < 2 || parsed.half_size))
+                       "bracket options require focus-stack or hdr");
+  if ((parsed.command == "focus-stack" || parsed.command == "hdr") &&
+      (parsed.inputs.size() < 2 || parsed.half_size))
     return photo::fail(photo::error_code::invalid_argument, "parse arguments",
-                       "focus-stack requires at least two frames; --half-size is RAW-only");
+                       "bracket requires at least two frames; --half-size is single-RAW-only");
 
   if (!parsed.output.empty()) {
     auto encoding = output_encoding(parsed.output);
@@ -154,6 +162,28 @@ void print_statistics(const photo::decoded_image &decoded) {
 }
 
 photo::result<void> run(const arguments &options) {
+  if (options.command == "hdr") {
+    photo::hdr_options settings;
+    settings.memory_budget_mib = options.focus.memory_budget_mib;
+    settings.tile_size = options.focus.tile_size;
+    settings.proxy_long_edge = options.focus.proxy_long_edge;
+    settings.reference_index = options.focus.reference_index;
+    settings.scratch_directory = options.focus.scratch_directory;
+    settings.diagnostics_directory = options.diagnostics;
+    settings.already_aligned = options.focus.already_aligned;
+    auto merged = photo::merge_hdr(options.inputs, options.output, settings);
+    if (!merged)
+      return std::unexpected(merged.error());
+    std::cout << "written: " << options.output << "\nworking: scene-linear Rec.2020/D65"
+              << "\nreference_index: " << merged->reference_index
+              << "\nraw_context: " << merged->raw_context->fingerprint()
+              << "\nestimated_peak_bytes: " << merged->estimated_peak_bytes
+              << "\ndeghost_fraction: " << merged->deghost_fraction
+              << "\nclipped_fraction: " << merged->clipped_fraction
+              << "\nlow_snr_fraction: " << merged->low_snr_fraction
+              << "\nchannel_range: " << merged->minimum << " .. " << merged->maximum << '\n';
+    return {};
+  }
   if (options.command == "focus-stack") {
     auto stacked = photo::stack_focus(options.inputs, options.output, options.focus);
     if (!stacked)
@@ -176,6 +206,42 @@ photo::result<void> run(const arguments &options) {
     return {};
   }
   auto decoded = photo::read_image(options.input, options.half_size);
+  if (!decoded && options.command == "inspect") {
+    auto extension = std::filesystem::path(options.input).extension().string();
+    std::ranges::transform(extension, extension.begin(),
+                           [](unsigned char c) { return std::tolower(c); });
+    if (extension == ".tif" || extension == ".tiff") {
+      auto working = photo::read_working_tiff(options.input);
+      if (working) {
+        float lo = std::numeric_limits<float>::infinity(), hi = -lo;
+        for (std::size_t y = 0; y < working->pixels.size().height; ++y)
+          for (auto p : working->pixels.view().row(y)) {
+            lo = std::min({lo, p.r, p.g, p.b});
+            hi = std::max({hi, p.r, p.g, p.b});
+          }
+        std::cout << "size: " << working->pixels.size().width << 'x'
+                  << working->pixels.size().height << "\nworking: float32 linear "
+                  << (working->encoding.primaries == photo::rgb_primaries::rec2020 ? "Rec.2020"
+                                                                                   : "sRGB")
+                  << "/D65\nnormalization: " << working->encoding.normalization
+                  << "\nchannel_range: " << lo << " .. " << hi << '\n';
+        return {};
+      }
+      auto scalar = photo::read_scalar_tiff(options.input);
+      if (scalar) {
+        float lo = std::numeric_limits<float>::infinity(), hi = -lo;
+        for (std::size_t y = 0; y < scalar->pixels.size().height; ++y)
+          for (auto p : scalar->pixels.view().row(y)) {
+            lo = std::min(lo, p.value);
+            hi = std::max(hi, p.value);
+          }
+        std::cout << "size: " << scalar->pixels.size().width << 'x'
+                  << scalar->pixels.size().height << "\nmeasurement: " << scalar->meaning
+                  << "\nscalar_range: " << lo << " .. " << hi << '\n';
+        return {};
+      }
+    }
+  }
   if (!decoded)
     return std::unexpected(decoded.error());
   print_statistics(*decoded);
@@ -217,6 +283,11 @@ void print_help() {
          "                      [--aligned] [--reference INDEX] [--diagnostics DIRECTORY]\n"
          "                      [--memory-budget-mib 2048] [--scratch-directory DIRECTORY]\n"
          "                      [--tile-size 256] [--proxy-long-edge 1024]\n"
+         "photo-ops hdr EXPOSURE1 EXPOSURE2 ... -o radiance.tif\n"
+         "              [--aligned] [--reference INDEX] [--diagnostics DIRECTORY]\n"
+         "              [--memory-budget-mib 2048] [--scratch-directory DIRECTORY]\n"
+         "              [--tile-size 256] [--proxy-long-edge 1024]\n"
+         "HDR: shutter-only RAW AEB -> signed float32 linear Rec.2020 TIFF, no tone map.\n"
          "Focus stacking: compatible CR3/Bayer DNG -> float32 linear Rec.2020 ICC TIFF.\n"
          "               Consistently developed TIFF/JPEG -> 16-bit sRGB TIFF.\n"
          "Other inputs: CR3, RGB TIFF, JPEG. Outputs: 16-bit TIFF, EXR, JPEG.\n"

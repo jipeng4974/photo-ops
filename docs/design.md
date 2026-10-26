@@ -2,11 +2,12 @@
 
 ## 摄影 API 边界
 
-面向使用者的摄影操作保持两个入口：
+面向使用者的摄影操作保持三个入口：
 
 ```cpp
 enhance_sunlight(...)
 stack_focus(...)
+merge_hdr(...)
 ```
 
 内部配准、区域评分、mask refinement、多尺度融合可以持续演进，不把各阶段变成
@@ -14,7 +15,7 @@ stack_focus(...)
 report 中；也不把 options 堆成算法开关清单。image / color / I/O 的工程接口继续按
 职责存在，但不据此建一个通用 editor、pipeline builder 或另一套摄影调用方式。
 新增摄影 operator 需要明确的实际用例与范围决定；不因为某个算法可以单独调用就
-export 它，也不只为了测试而扩大公开边界。现有两个函数不必强行统一成抽象框架。
+export 它，也不只为了测试而扩大公开边界。现有三个函数不必强行统一成抽象框架。
 
 ## v0.2 架构修正（2026-10-25）
 
@@ -34,6 +35,15 @@ export 它，也不只为了测试而扩大公开边界。现有两个函数不�
 下文是产品算法方向；涉及全图融合的概念图不意味着可同时载入 N 张全尺寸图。
 当前实现与未来设计的差异应显式保留，不能把待实现契约当作已实现能力。
 
+## v1.7 HDR 范围
+
+新增明确的 photographic operation `merge_hdr(...)`，服务于 shutter-only RAW AEB，
+不暴露低层 registration／radiance stages。沿用一个 shared context，在 reference
+exposure 信号尺度合并；用 pre-WB sensor support 判断 clipping／signal floor，
+运动区域选同一 coherent source。输出 signed float32 Rec.2020 TIFF，无隐式 tone map。
+数值契约、预算、诊断与真实素材缺口见 [HDR](hdr.md)。二维 grouped capture 将扩展
+`stack_focus`，不增加 pipeline builder 或自动猜测拍摄矩阵。
+
 ## 当前已落地的兼容格式契约（2026-10-25）
 
 输入以 CR3 为优先，并支持 TIFF、JPEG。内部使用项目自有 float32 linear RGB
@@ -48,7 +58,8 @@ CLI 提供 `inspect` / `convert` 和首版 `sunlight-enhance`；后者的实际�
 近中性亮材质／弱照明证据的保守 abstention，以及真实效果测量与局部对照。下文的完整 sunlight 设计仍包含未来改进，
 `photo_ops.focus_stack` 已实现 rendered TIFF/JPEG 序列的配准、coherent selection、
 运动 fallback 与 tiled multiband fusion；v1.2 接入共享 context 的 Bayer RAW bracket。实现边界与验收见
-[focus-stack](focus-stack.md)。配准只服务本算子，暂不拆独立 registration/focus 模块。
+[focus-stack](focus-stack.md)。v1.7 HDR 成为第二个真实配准 consumer，因此共享内部 registration adapter；
+focus selection／fusion 仍留在 focus-stack 模块。
 
 `photo-ops` is a personal, programmatic landscape-photography toolkit.
 

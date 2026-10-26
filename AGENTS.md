@@ -31,6 +31,7 @@ Before making architectural or algorithmic changes, read:
 - `docs/toolchain.md` — canonical C++ toolchain and coding philosophy.
 - `docs/raw-pipeline.md` — wide-gamut RAW and immutable sequence-context design.
 - `docs/focus-stack.md` — registration proxies and memory-budgeted full-resolution fusion.
+- `docs/hdr.md` — shutter-only radiometric merge, reliability, deghosting and HDR budgets.
 
 Use Omarchy/Arch system packages as the canonical dependency path; Homebrew is
 explicitly optional. Use stock clang-format; do not restore a custom C++ lexical
@@ -50,18 +51,20 @@ If implementation and documentation disagree, do not silently reinterpret the de
 5. Start with the simplest algorithm that can solve the observed problem. Add complexity only after real images justify it.
 6. Do not turn this project into a Lightroom/Photoshop replacement.
 
-The initial operators are:
+The photographic operators are:
 
 - `focus-stack` — depth-of-field stacking with progressively stronger registration, spatially regularized focus selection, and multi-scale fusion.
 - `sunlight-enhance` — illumination-aware enhancement of coherent sunlit regions when luminance contrast is strong but chromatic separation is weak.
+- `hdr` — radiometric merging of shutter-only RAW exposure brackets, without implicit tone mapping.
 
 ## Photographic API surface
 
-Keep the user-facing photographic API centered on two operations:
+Keep the user-facing photographic API centered on three operations:
 
 ```cpp
 enhance_sunlight(...)
 stack_focus(...)
+merge_hdr(...)
 ```
 
 Algorithms may become sophisticated internally without adding public stages for
@@ -148,9 +151,11 @@ photo_ops.sunlight
 photo_ops.diagnostics
 ```
 
-Keep registration and fusion together in `photo_ops.focus_stack`; registration
-currently serves focus stacking alone. Split out a reusable registration module
-only when an actual second consumer justifies it. The implementation accepts consistently developed rendered TIFF/JPEG sequences
+Focus stacking and HDR now share the internal `photo_ops.detail.registration`
+adapter because both are actual production consumers. Do not expose registration
+as another photographic operation. Focus selection and multi-band fusion remain
+in `photo_ops.focus_stack`; radiometric fusion remains in `photo_ops.hdr`.
+The implementation accepts consistently developed rendered TIFF/JPEG focus sequences
 and supported Bayer RAW brackets through the signed float/shared-context pipeline.
 Never fall back to independent per-frame RAW development.
 
@@ -229,6 +234,25 @@ Prefer small residual misalignment over geometrically implausible warping.
 Do not use per-pixel sharpness `argmax` as the final focus map. Focus selection should be spatially coherent and fusion should avoid seams and halos.
 
 Moving foliage/water/people should reduce confidence or trigger a coherent-source fallback rather than produce double edges.
+
+### `hdr` and focus-by-exposure captures
+
+The recurring use case is shutter-only RAW AEB and explicit focus-by-exposure
+capture groups. Keep ISO, aperture, WB, calibration and geometry assumptions shared;
+normalize to one context's reference-shutter signal units. Ordinary focus brackets
+still reject exposure differences. Never infer sensor clipping from developed RGB
+being greater than one; use pre-WB sensor support. Preserve finite signed/HDR RGB.
+
+Prefer reliable longer exposures for shadows and shorter measurements for clipped
+highlights. Moving regions need a coherent exposure source rather than independent
+per-pixel temporal choices. Expose clipping, low-signal and deghost diagnostics and
+state the limits of heuristic noise estimates. Keep tone mapping and JPEG camera
+response estimation out of scene-linear RAW merge.
+
+Extend `stack_focus` for explicit grouped captures rather than adding public
+registration/exposure/focus stages. All groups must retain one frozen RAW context
+and common radiometric scale; carry HDR reliability and motion evidence into focus
+selection. Continue to budget sequential decode, private spools and tile workspaces.
 
 ### `sunlight-enhance`
 

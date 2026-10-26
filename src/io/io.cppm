@@ -60,4 +60,17 @@ result<void> write_working_tiff_rows(const std::string &path, extent dimensions,
                                      const working_row_reader &read_row);
 /// Reads the explicit working TIFF format above; rejects unknown/contradictory ICC metadata.
 result<working_image> read_working_tiff(const std::string &path);
+/// Numeric scalar TIFF: float32, no transfer/ICC, explicit semantic provenance.
+/// These samples are measurements/maps, not sRGB display values.
+using scalar_row_reader = std::function<result<void>(std::size_t, std::span<gray>)>;
+
+struct scalar_image {
+  image<gray> pixels;
+  std::string meaning;
+};
+
+result<void> write_scalar_tiff_rows(const std::string &path, extent dimensions,
+                                    const std::string &meaning,
+                                    const scalar_row_reader &read_row);
+result<scalar_image> read_scalar_tiff(const std::string &path);
 } // namespace photo_ops

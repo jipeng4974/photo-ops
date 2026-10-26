@@ -1,7 +1,8 @@
 # focus-stack：实现、边界与内存预算
 
-v0.3 实现单一 named module **`photo_ops.focus_stack`**：配准仅服务景深合成，
-保留为该模块中的 adapter，不拆 `photo_ops.registration` / `photo_ops.focus`。
+v0.3 实现单一 named module **`photo_ops.focus_stack`**：v1.7 起，
+配准 adapter 由本模块和 HDR 两个实际 consumer 共享为内部 named module
+`photo_ops.detail.registration`；没有公开额外摄影阶段或独立 focus operation。
 public 摄影入口为 `stack_focus(paths, output, options)`；similarity 数值通过
 report 检查，registration helper 不 export。v1.0 移除原先公开的
 `align_focus_stack`，调用方迁移到 `stack_focus` 的返回 report。

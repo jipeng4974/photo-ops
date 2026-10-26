@@ -7,20 +7,13 @@ module;
 #include <vector>
 export module photo_ops.focus_stack;
 import photo_ops.image;
+import photo_ops.detail.registration;
 export import photo_ops.raw;
 export import photo_ops.error;
 
 export namespace photo_ops {
-/// Source-to-reference similarity in pixel-center coordinates, not normalized coordinates.
-struct focus_stack_alignment {
-  double a = 1, b = 0, tx = 0, ty = 0;
-  double residual_px = 0;
-  double dense_residual_px = 0, dense_correlation = 1;
-  std::size_t matches = 0, inliers = 0;
-  std::size_t refinement_samples = 0;
-  bool refined = false;
-  bool identity = true;
-};
+/// Inspectable geometry; registration remains internal to photographic operations.
+using focus_stack_alignment = detail::bracket_alignment;
 
 struct focus_stack_options {
   std::size_t memory_budget_mib = 2048;
@@ -75,15 +68,3 @@ result<focus_stack_report> stack_focus(std::span<const std::string> inputs,
                                        const std::string &output,
                                        const focus_stack_options &options = {});
 } // namespace photo_ops
-
-// Shared by this module's implementation units; not exported to consumers.
-namespace photo_ops::detail {
-/// Internal registration for focus stacking; views are linear-sRGB luminance proxies.
-/// Rejects insufficient evidence and excessive deformation instead of guessing identity.
-result<focus_stack_alignment> align_focus_stack(image_view<const gray> reference,
-                                                image_view<const gray> source);
-result<focus_stack_alignment> refine_focus_stack(image_view<const gray> reference,
-                                                 image_view<const gray> source,
-                                                 focus_stack_alignment initial);
-
-} // namespace photo_ops::detail

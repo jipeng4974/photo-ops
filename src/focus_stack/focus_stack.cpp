@@ -1076,7 +1076,8 @@ result<void> diagnostics(const std::string &directory, const coherent_maps &maps
     const auto &context = *report.raw_context;
     const auto &ref = context.reference();
     file << "  \"raw_context\": {\"fingerprint\":" << json_string(context.fingerprint())
-         << ",\"camera\":" << json_string(ref.camera)
+         << ",\"camera\":" << json_string(ref.camera) << ",\"lens\":" << json_string(ref.lens)
+         << ",\"focal_length_mm\":" << ref.focal_length_mm
          << ",\"decoder_version\":" << json_string(ref.decoder_version)
          << ",\"color_reference_index\":" << context.reference_index()
          << ",\"calibration\":\"LibRaw daylight camera-to-XYZ/D65, diagonal WB once\""
@@ -1397,7 +1398,7 @@ result<focus_stack_report> stack_focus(std::span<const std::string> inputs,
       reference_proxy = std::move(small);
     } else if (!options.already_aligned) {
       scoped_time measured(profile.registration_seconds);
-      auto alignment = detail::align_focus_stack(reference_proxy.view(), small.view());
+      auto alignment = detail::align_bracket(reference_proxy.view(), small.view());
       if (!alignment)
         return std::unexpected(error{alignment.error().code, alignment.error().operation,
                                      alignment.error().message, inputs[i]});
@@ -1431,7 +1432,7 @@ result<focus_stack_report> stack_focus(std::span<const std::string> inputs,
       const double center = (refinement_step - 1) * .5;
       t.tx = (t.tx - center + (t.a - t.b) * center) / refinement_step;
       t.ty = (t.ty - center + (t.a + t.b) * center) / refinement_step;
-      auto refined = detail::refine_focus_stack(fine_ref->view(), fine->view(), t);
+      auto refined = detail::refine_bracket(fine_ref->view(), fine->view(), t);
       if (!refined)
         return std::unexpected(error{refined.error().code, refined.error().operation,
                                      refined.error().message, inputs[i]});

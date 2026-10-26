@@ -62,7 +62,8 @@ bool compatible(const raw_frame_metadata &a, const raw_frame_metadata &b,
   const auto near = [](double x, double y) {
     return std::abs(x - y) <= 1e-6 * std::max(std::abs(x), std::abs(y));
   };
-  return a.camera == b.camera && a.decoder_version == b.decoder_version &&
+  return a.camera == b.camera && a.lens == b.lens && a.decoder_version == b.decoder_version &&
+         near(a.focal_length_mm, b.focal_length_mm) &&
          same_size(a.raw_dimensions, b.raw_dimensions) &&
          same_size(a.active_dimensions, b.active_dimensions) &&
          same_size(a.output_dimensions, b.output_dimensions) && a.left == b.left &&
@@ -84,8 +85,8 @@ result<void> validate(const raw_frame_metadata &m) {
       m.orientation > 7 || m.nominal_bits < 8 || m.nominal_bits > 16 || m.camera.empty() ||
       m.input_fingerprint.empty() || m.decoder_version != LibRaw::version() ||
       !std::isfinite(m.iso) || !std::isfinite(m.aperture) ||
-      !std::isfinite(m.shutter_seconds) || m.iso <= 0 || m.aperture <= 0 ||
-      m.shutter_seconds <= 0)
+      !std::isfinite(m.shutter_seconds) || !std::isfinite(m.focal_length_mm) ||
+      m.focal_length_mm < 0 || m.iso <= 0 || m.aperture <= 0 || m.shutter_seconds <= 0)
     return fail(error_code::invalid_argument, "RAW metadata",
                 "unsupported geometry, exposure or decoder identity", m.path);
   const auto reserve = 40 * dimensions.width * dimensions.height + m.file_bytes + 256 * mib;
@@ -184,6 +185,9 @@ result<raw_frame_metadata> metadata(LibRaw &decoder, const std::string &path) {
     if (std::abs(c.rgb_cam[k][3]) > 1e-8)
       return fail(error_code::unsupported_format, "RAW metadata",
                   "four-channel characterization unsupported", path);
+  m.lens = std::string(std::begin(d.lens.Lens),
+                       std::find(std::begin(d.lens.Lens), std::end(d.lens.Lens), '\0'));
+  m.focal_length_mm = d.other.focal_len;
   m.iso = d.other.iso_speed;
   m.shutter_seconds = d.other.shutter;
   m.aperture = d.other.aperture;
@@ -291,15 +295,16 @@ result<raw_sequence_context> prepare_raw_sequence(std::span<const raw_frame_meta
   fingerprint hash;
   std::ostringstream canonical;
   canonical.imbue(std::locale::classic());
-  canonical << "photo-ops-raw-float-ha-v2;Rec2020-D65;"
+  canonical << "photo-ops-raw-float-ha-v3;Rec2020-D65;"
             << static_cast<int>(options.exposure_policy) << ';' << reference << ';'
             << std::hexfloat;
   for (auto v : wb)
     canonical << v << ';';
   for (const auto &m : frames) {
     canonical << m.path << ';' << m.input_fingerprint << ';' << m.decoder_version << ';'
-              << m.camera << ';' << m.raw_dimensions.width << ',' << m.raw_dimensions.height
-              << ',' << m.left << ',' << m.top << ',' << m.active_dimensions.width << ','
+              << m.camera << ';' << m.lens << ';' << m.focal_length_mm << ';'
+              << m.raw_dimensions.width << ',' << m.raw_dimensions.height << ',' << m.left
+              << ',' << m.top << ',' << m.active_dimensions.width << ','
               << m.active_dimensions.height << ',' << m.orientation << ',' << m.nominal_bits
               << ';' << m.iso << ',' << m.shutter_seconds << ',' << m.aperture << ';';
     for (auto c : m.cfa)

@@ -9,7 +9,7 @@ module;
 #include <opencv2/geometry.hpp>
 #include <opencv2/imgproc.hpp>
 #include <vector>
-module photo_ops.focus_stack;
+module photo_ops.detail.registration;
 import photo_ops.image;
 
 namespace photo_ops::detail {
@@ -39,8 +39,8 @@ struct rng_restore {
 };
 } // namespace
 
-result<focus_stack_alignment> align_focus_stack(image_view<const gray> reference,
-                                                image_view<const gray> source) {
+result<bracket_alignment> align_bracket(image_view<const gray> reference,
+                                        image_view<const gray> source) {
   const auto size = reference.size();
   if (size.width < 16 || size.height < 16 || size.width > 2048 || size.height > 2048 ||
       size.width != source.size().width || size.height != source.size().height)
@@ -55,7 +55,7 @@ result<focus_stack_alignment> align_focus_stack(image_view<const gray> reference
       equal &= a == b;
     }
   if (equal)
-    return focus_stack_alignment{};
+    return bracket_alignment{};
   try {
     // OpenCV stays behind this adapter. Neither its pixels nor its geometry escape.
     const auto first = feature_image(reference), second = feature_image(source);
@@ -91,7 +91,7 @@ result<focus_stack_alignment> align_focus_stack(image_view<const gray> reference
         cv::estimateAffinePartial2D(from, to, inliers, cv::RANSAC, 2., 2000, .995, 10);
     if (matrix.empty())
       return fail(error_code::decode, "focus registration", "similarity estimation failed");
-    focus_stack_alignment result;
+    bracket_alignment result;
     result.a = matrix.at<double>(0, 0);
     result.b = matrix.at<double>(1, 0);
     result.tx = matrix.at<double>(0, 2);
@@ -149,7 +149,7 @@ struct direct_evidence {
 };
 
 direct_evidence evaluate(const cv::Mat &reference, const cv::Mat &source, const cv::Mat &gx,
-                         const cv::Mat &gy, const focus_stack_alignment &t) {
+                         const cv::Mat &gy, const bracket_alignment &t) {
   direct_evidence out;
   const double cx = (source.cols - 1) * .5, cy = (source.rows - 1) * .5;
   const double radius = std::max(source.cols, source.rows) * .5;
@@ -184,9 +184,9 @@ direct_evidence evaluate(const cv::Mat &reference, const cv::Mat &source, const 
 }
 } // namespace
 
-result<focus_stack_alignment> refine_focus_stack(image_view<const gray> reference,
-                                                 image_view<const gray> source,
-                                                 focus_stack_alignment initial) {
+result<bracket_alignment> refine_bracket(image_view<const gray> reference,
+                                         image_view<const gray> source,
+                                         bracket_alignment initial) {
   try {
     auto t = initial;
     for (double sigma : {3., 1.5, .75}) {

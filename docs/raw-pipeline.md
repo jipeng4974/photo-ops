@@ -188,3 +188,11 @@ release / EXR 关闭 clean build、完整 C++ 与 22 项 Python 回归（1 项�
 真实 R8 RAW 与 CRAW 单张的 full-resolution sensor-support 检查也已 opt-in 通过，
 输出尺寸与 RGB 一致、采样极值有限且有序；Canon 相邻三帧颜色／context 和原有
 完整 C++ 回归一并通过。这仍不代表 AEB radiometric merge 的真实素材验收。
+
+## v1.7 HDR 接入与 optics metadata
+
+`merge_hdr` 使用上述 shutter policy；见 [HDR](hdr.md)。context 现在还冻结 decoder
+提供的 lens 字符串与 nominal focal length，已知值变化明确拒绝，防止 exposure 轴
+悄悄改变光学条件。空字符串／0 表示 decoder 未提供，不证明物理条件一致；registration
+仍需检查图像证据。context fingerprint 升到 v3 并纳入这些字段。没有新增 per-frame
+自动开发或 ISO／aperture／zoom 的隐式补偿。

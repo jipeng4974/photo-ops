@@ -1,5 +1,5 @@
 set_project("photo-ops")
-set_version("1.6.0")
+set_version("1.7.0")
 set_xmakever("3.1.2")
 set_languages("c++26")
 add_cxxflags("-fcontracts", "-fcontract-evaluation-semantic=quick_enforce")
@@ -40,7 +40,7 @@ target("photo_ops")
     set_kind("static")
     add_files("src/**.cppm", {public = true})
     add_files("src/io/*.cpp", "src/sunlight/*.cpp", "src/diagnostics/*.cpp",
-              "src/focus_stack/*.cpp")
+              "src/focus_stack/*.cpp", "src/registration/*.cpp", "src/hdr/*.cpp")
     add_packages("raw", "tiff", "jpeg", "lcms", "opencv")
     if has_config("exr") then
         add_packages("exr")

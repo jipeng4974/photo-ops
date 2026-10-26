@@ -519,3 +519,15 @@ RAW／CRAW 和相邻 Canon 帧的 opt-in 解码／context／颜色检查。
 最终已 clean rebuild 并恢复 debug + EXR、关闭 sanitizer 的日常开发配置；
 未修改系统包或桌面配置。v1.5 外部 R8 manifest 工具增加九项离线 Python 回归，
 与 CLI／工具链等合计 22 项（1 项可选 sunlight 实拍检查跳过）。
+
+## v1.7 HDR / shared registration 验证
+
+HDR 成为实际第二个 consumer 后，配准实现迁入 `photo_ops.detail.registration`。
+其 helpers 不从 public photographic modules re-export；真实 consumer 编译回归同时
+检查旧名称与 shared helper 的不可见性。未降级 named modules 或更换 compiler。
+scalar TIFF adapter 继续用系统 libtiff，HDR 本身没有新增外部依赖。
+
+release / EXR 关闭完整 C++ 回归通过；clean debug + EXR + ASan/UBSan 构建与
+HDR／RAW／focus suites、24 项 Python tests 通过（1 项可选实拍跳过）。包含独立
+radiance DNG、partial-channel clipping、clipped-motion lower bound、fractional AEB
+alignment、scalar provenance／atomic publication 和正常 focus 行为。

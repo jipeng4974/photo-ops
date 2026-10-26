@@ -38,6 +38,7 @@ void sunlight_tests();
 void focus_stack_tests();
 void raw_sequence_tests();
 void defocus_tests();
+void hdr_tests();
 
 namespace p = photo_ops;
 
@@ -408,8 +409,25 @@ void io_tests() {
 }
 } // namespace
 
-int main() {
+int main(int argc, char **argv) {
   try {
+    if (argc == 3 && std::string(argv[1]) == "--suite") {
+      const std::string suite(argv[2]);
+      if (suite == "hdr")
+        hdr_tests();
+      else if (suite == "raw")
+        raw_sequence_tests();
+      else if (suite == "focus")
+        focus_stack_tests();
+      else if (suite == "defocus")
+        defocus_tests();
+      else
+        throw std::runtime_error("unknown test suite: " + suite);
+      std::cout << suite << " suite passed\n";
+      return 0;
+    }
+    if (argc != 1)
+      throw std::runtime_error("usage: photo-ops-tests [--suite hdr|raw|focus|defocus]");
     image_tests();
     color_tests();
     pyramid_tests();
@@ -418,6 +436,7 @@ int main() {
     sunlight_tests();
     focus_stack_tests();
     raw_sequence_tests();
+    hdr_tests();
     defocus_tests();
     std::cout << checks << " checks passed\n";
     return 0;

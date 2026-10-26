@@ -22,7 +22,7 @@ result<image<linear_rgb>> decode_raw(const std::string &path, raw_options option
 
 /// Calibration after unpack (some Canon black levels are unavailable at header time).
 struct raw_frame_metadata {
-  std::string path, input_fingerprint, decoder_version, camera;
+  std::string path, input_fingerprint, decoder_version, camera, lens;
   extent raw_dimensions, active_dimensions, output_dimensions;
   std::size_t left = 0, top = 0;
   int orientation = 0;
@@ -30,7 +30,7 @@ struct raw_frame_metadata {
   std::array<unsigned, 4> cfa{}; // 2x2 in native active-area coordinates: R=0,G1=1,B=2,G2=3.
   std::array<double, 4> black{}, white{}, camera_wb{};
   std::array<double, 9> camera_to_xyz{}; // D65 daylight characterization, row-major.
-  double iso = 0, shutter_seconds = 0, aperture = 0;
+  double iso = 0, shutter_seconds = 0, aperture = 0, focal_length_mm = 0; // 0: unavailable.
   std::size_t file_bytes = 0, decode_reserve_bytes = 0;
 };
 

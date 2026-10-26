@@ -6,6 +6,7 @@ import struct
 import subprocess
 import tempfile
 import unittest
+from dng_fixture import write_dng_fixture
 
 ROOT = Path(__file__).resolve().parents[1]
 BINARY = Path(os.environ.get("PHOTO_OPS_BINARY", ROOT / "build/linux/x86_64/debug/photo-ops"))
@@ -126,6 +127,62 @@ class CommandLine(unittest.TestCase):
                 self.assertEqual(inspected.returncode, 0, inspected.stderr)
                 self.assertFalse((diagnostics/"report.json").exists())
                 self.assertFalse(list(diagnostics.iterdir()))
+            finally:
+                diagnostics.chmod(0o755)
+
+    def test_hdr_cli_and_numeric_diagnostics(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            inputs = [root/f"{index}.dng" for index in range(3)]
+            for path, exposure in zip(inputs, [(1,400), (1,100), (1,25)]):
+                write_dng_fixture(path, exposure)
+            result = self.run_cli("hdr", *inputs, "-o", root/"hdr.tif", "--aligned",
+                                  "--memory-budget-mib", "512", "--tile-size", "32",
+                                  "--scratch-directory", root, "--diagnostics", root/"diagnostics")
+            self.assertEqual(result.returncode, 0, result.stderr)
+            report = json.loads((root/"diagnostics/report.json").read_text())
+            self.assertFalse(report["tone_mapping"])
+            self.assertEqual(report["reference_index"], 1)
+            self.assertGreater(report["maximum"], 1)
+            self.assertEqual([row["exposure_scale"] for row in report["frames"]], [4,1,.25])
+            self.assertAlmostEqual(sum(row["contribution_fraction"] for row in report["frames"]), 1)
+            self.assertEqual(report["raw_context"]["exposure_policy"], "shutter_bracket")
+            self.assertEqual(report["profile"]["output_bytes"], (root/"hdr.tif").stat().st_size)
+            inspected = self.run_cli("inspect", root/"hdr.tif")
+            self.assertEqual(inspected.returncode, 0, inspected.stderr)
+            self.assertIn("Rec.2020", inspected.stdout)
+            for name in ["confidence.tif", "deghost.tif", "clipping.tif", "low-snr.tif", "deghost-source.tif"]:
+                inspected = self.run_cli("inspect", root/"diagnostics"/name)
+                self.assertEqual(inspected.returncode, 0, inspected.stderr)
+                self.assertIn("measurement:", inspected.stdout)
+            self.assertFalse(list(root.glob("photo-ops-hdr-*")))
+            focus = self.run_cli("focus-stack", *inputs, "-o", root/"wrong-focus.tif", "--aligned")
+            self.assertEqual(focus.returncode, 1)
+            self.assertIn("exposure mismatch", focus.stderr)
+            self.assertFalse((root/"wrong-focus.tif").exists())
+            collision = self.run_cli("hdr", *inputs, "-o", root/"collision.tif", "--aligned", "--diagnostics", root/"diagnostics")
+            self.assertEqual(collision.returncode, 1)
+            self.assertFalse((root/"collision.tif").exists())
+            duplicate = self.run_cli("hdr", inputs[0], inputs[0], inputs[1], "-o", root/"duplicate.tif", "--aligned")
+            self.assertEqual(duplicate.returncode, 1)
+            self.assertIn("duplicate", duplicate.stderr)
+            self.assertFalse((root/"duplicate.tif").exists())
+
+    @unittest.skipIf(os.geteuid() == 0, "root bypasses directory write permissions")
+    def test_hdr_diagnostic_failure_keeps_complete_photo(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            inputs = [root/f"{index}.dng" for index in range(3)]
+            for path, exposure in zip(inputs, [(1,400), (1,100), (1,25)]):
+                write_dng_fixture(path, exposure)
+            diagnostics = root/"readonly"
+            diagnostics.mkdir(mode=0o555)
+            try:
+                result = self.run_cli("hdr", *inputs, "-o", root/"hdr.tif", "--aligned", "--diagnostics", diagnostics)
+                self.assertEqual(result.returncode, 1)
+                self.assertIn("complete image published at", result.stderr)
+                self.assertEqual(self.run_cli("inspect", root/"hdr.tif").returncode, 0)
+                self.assertFalse((diagnostics/"report.json").exists())
             finally:
                 diagnostics.chmod(0o755)
 

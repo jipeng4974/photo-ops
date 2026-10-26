@@ -1,0 +1,29 @@
+{
+  "version": 1,
+  "kind": "synthetic-radiometric-regression",
+  "generator": "tests/hdr.cpp: independent Bayer DNG sensor simulator",
+  "sensor": {"bits": 16, "black": 512, "white": 16383, "read_noise_counts": "deterministic integer [-3,3]"},
+  "exposures_seconds": [0.0025, 0.01, 0.04],
+  "normalization": "0.01-second reference-shutter signal units",
+  "radiometric_fixture": {
+    "dimensions": [256,160],
+    "shadow_mae": 0.0000213228,
+    "shortest_exposure_shadow_mae": 0.000446612,
+    "highlight_mae": 0.000550473,
+    "middle_exposure_highlight_mae": 0.600316,
+    "signed_and_hdr_retained": true,
+    "all_clipped_confidence": 0
+  },
+  "geometry_fixture": {
+    "dimensions": [384,320],
+    "coarse_proxy_long_edge": 192,
+    "short_transform": {"a":0.998,"b":-0.001,"tx":0.35,"ty":-0.25},
+    "long_transform": {"a":1.002,"b":0.001,"tx":-0.4,"ty":0.2},
+    "observed_maximum_corner_error_full_px": 0.00149879,
+    "regression_limit_full_px": 0.4
+  },
+  "motion_fixtures": ["unclipped reference, proxy step 1 and 4", "clipped reference lower-bound inconsistency, proxy step 1 and 4"],
+  "color_fixtures": [[1,0.2,0.1],[0.15,1,0.4],[0.2,0.1,1]],
+  "color_highlight_maximum_error_limit": 0.003,
+  "note": "Deterministic engineering fixtures; not a real R8 AEB bracket or a camera noise calibration. Values describe the reference implementation on the pinned toolchain."
+}

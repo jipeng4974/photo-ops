@@ -1,6 +1,6 @@
 # TODO2：HDR 与 focus × exposure 二维合成
 
-> **状态：分阶段实施中。** v1.6 已提供 shutter-only RAW context 与 sensor-support 基础；HDR operator 与二维合成仍在实现。本页各项以末尾实施记录为准。
+> **状态：分阶段实施中。** v1.6 已提供 shutter-only RAW context 与 sensor-support 基础；v1.7 已提供 standalone HDR operator；二维合成仍在实现。本页各项以末尾实施记录为准。
 
 本文考虑两个相关但不同的目标：
 
@@ -274,5 +274,10 @@ merge_hdr(...)
   归一共享 exposure scale；opt-in pre-WB sensor-support extrema 覆盖完整 demosaic
   footprint，并在 unpack 前计入预算。fixed focus bracket 的曝光拒绝契约继续保留。
   细节与回归见 [RAW pipeline](raw-pipeline.md)。
-- 下一阶段：standalone `merge_hdr`、数值 radiance／deghost fixtures 与诊断；随后才接
-  显式 matrix／HDR-first focus fusion。真实 R8 AEB／2×3 专项素材仍待采集。
+- **v1.7.0 / standalone HDR**：新增 `photo_ops.hdr`、`merge_hdr` 与 `hdr` CLI，支持
+  signed float radiometric AEB、shutter metadata 归一、sensor reliability／clipping、
+  coherent component deghost、预算内 tile/spool 和数字地图／JSON 诊断。合成 radiance、
+  三种 camera 色彩的 partial clipping、reference clipped 的运动与 subpixel AEB
+  registration 回归见 [HDR](hdr.md)。真实 R8 AEB acceptance 仍待素材。
+- 下一阶段：显式 matrix／HDR-first focus fusion，传播 HDR reliability／motion，
+  始终保留一个全局 RAW context。真实 R8 AEB／2×3 专项素材仍待采集。

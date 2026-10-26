@@ -4,9 +4,19 @@
 
 ```mermaid
 graph TD
-    CLI[CLI inspect / convert / sunlight-enhance / focus-stack] --> IO[photo_ops.io]
+    CLI[CLI inspect / convert / sunlight-enhance / focus-stack / hdr] --> IO[photo_ops.io]
     CLI --> DIAG[photo_ops.diagnostics]
     CLI --> FOCUS[photo_ops.focus_stack]
+    CLI --> HDR[photo_ops.hdr]
+    HDR --> REG[photo_ops.detail.registration]
+    FOCUS --> REG
+    HDR --> RAW
+    HDR --> IO
+    HDR --> OUT
+    HDR --> IMAGE
+    HDR --> COLOR
+    REG --> IMAGE
+    REG --> ERR
     FOCUS --> IO
     FOCUS --> OUT
     FOCUS --> IMAGE
@@ -40,10 +50,11 @@ module interfaces 可以跨 target 使用。第三方 headers 只出现在 imple
 或 header units；xmake 的自动 std module 构建也显式关闭。
 
 `photo_ops.sunlight` 已实现 classical MVP，见 [算法与诊断](sunlight-enhance.md)。
-`photo_ops.focus_stack` 已实现 rendered 与 shared-context Bayer RAW 合成；registration 与 fusion
-属于同一个模块的不同 implementation files，不预先建两个 reusable 模块。
-`align_focus_stack` 是不 export 的模块内 helper；外部通过 `stack_focus` 及其
-report 验证几何结果，不为了单测把配准阶段发布成另一个摄影 API。
+`photo_ops.focus_stack` 已实现 rendered 与 shared-context Bayer RAW 合成。v1.7 的
+`photo_ops.hdr` 成为第二个真实 registration consumer，因此共享内部 named module
+`photo_ops.detail.registration`；public photographic modules 不 re-export 其 helpers，
+consumer 回归同时检查旧名称与新的 shared helpers 均不能通过 focus-stack 调用。
+外部通过 `stack_focus`／`merge_hdr` 的 report 验证几何结果，未增加配准摄影操作。
 入口编排 input preflight、spool、proxy、配准、全局选择、tiled fusion 与 streaming
 输出；解码、颜色转换和最终编码继续通过 `photo_ops.io` 边界，OpenCV 仅在私有
 alignment adapter 中使用。图像算法内部仍使用项目类型和借用 view。
@@ -147,3 +158,5 @@ OKLab、Gaussian 奇数尺寸/边界/冲激响应、ICC 与 TIFF/JPEG 往返、�
 再做多尺度 focus evidence、空间正则化与 Laplacian fusion；不直接把 sharpness
 argmax 当作最终结果。风景 CR3 的 motion、曝光/WB 一致性与 focus breathing
 需要真实拍摄的回归场景，宏观样片只能覆盖其中一部分。
+
+HDR 的 radiometric／deghost／预算与数值 scalar TIFF 约定见 [HDR](hdr.md)。
