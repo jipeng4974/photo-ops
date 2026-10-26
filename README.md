@@ -23,7 +23,7 @@ and:
 Requires Linux x86-64, GCC 16.2.x, xmake 3.1.2+, and OpenCV 5.
 
 ```bash
-sudo pacman -S --needed gcc pkgconf clang libraw libtiff libjpeg-turbo lcms2 opencv
+sudo pacman -S --needed gcc pkgconf clang libraw libtiff libjpeg-turbo lcms2 opencv jsoncpp
 scripts/configure.sh -m release -y
 xmake -j4
 ```
@@ -39,6 +39,7 @@ xmake run photo-ops convert input.CR3 -o decoded.tif
 xmake run photo-ops sunlight-enhance input.CR3 -o enhanced.tif --diagnostics build/sunlight
 xmake run photo-ops focus-stack near.CR3 middle.CR3 far.CR3 -o stacked-linear.tif
 xmake run photo-ops hdr short.CR3 middle.CR3 long.CR3 -o radiance.tif
+xmake run photo-ops focus-stack --matrix capture.json -o stacked-hdr.tif
 ```
 
 `focus-stack` accepts compatible Bayer CR3/DNG brackets with one frozen RAW context
@@ -56,11 +57,14 @@ Registration records file identity and declared provenance; RAW decoder validati
 `hdr` preserves signed float32 Rec.2020 samples without tone mapping. See
 [HDR behavior and validation limits](docs/hdr.md).
 
+Explicit focus-by-exposure captures retain one shared RAW context with HDR-first fusion. See
+[matrix manifests and reliability propagation](docs/focus-exposure.md).
+
 Existing outputs are never overwritten. Run `xmake run photo-ops --help` for all options.
 
 ## API
 
-Version **1.7.0** provides three photographic entry points: `enhance_sunlight(...)`,
+Version **1.8.0** provides three photographic entry points: `enhance_sunlight(...)`,
 `stack_focus(...)`, and `merge_hdr(...)`.
 
 **Breaking change:** `align_focus_stack(...)` is no longer exported. Call

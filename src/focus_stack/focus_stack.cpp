@@ -60,6 +60,7 @@ struct scratch_run {
 struct frame {
   fs::path pixels, scores;
   focus_stack_alignment alignment;
+  bool hdr = false;
 };
 
 rgb_f32 add(rgb_f32 a, rgb_f32 b) {
@@ -504,6 +505,82 @@ result<image<rgb_f32>> warp_patch(const frame &source, extent size, rectangle re
   return output;
 }
 
+constexpr std::array<const char *, 4> hdr_suffixes{".exposure", ".hdr-motion", ".clipping",
+                                                   ".low-snr"};
+constexpr std::array<const char *, 4> hdr_meanings{"hdr-confidence;", "hdr-deghost;",
+                                                   "hdr-clipping;", "hdr-low-snr;"};
+
+float scalar_extreme(image_view<const gray> image, double x, double y, bool minimum) {
+  const long ix = std::floor(x), iy = std::floor(y);
+  const double fx = x - ix, fy = y - iy;
+  float result = minimum ? 1.f : 0.f;
+  for (long dy = 0; dy < 2; ++dy)
+    for (long dx = 0; dx < 2; ++dx) {
+      if ((dx ? fx : 1 - fx) * (dy ? fy : 1 - fy) == 0)
+        continue;
+      const auto value = image
+                             .at(std::clamp<long>(ix + dx, 0, image.size().width - 1),
+                                 std::clamp<long>(iy + dy, 0, image.size().height - 1))
+                             .value;
+      result = minimum ? std::min(result, value) : std::max(result, value);
+    }
+  return result;
+}
+
+image<gray> scalar_proxy(image_view<const gray> input, std::size_t step, bool minimum) {
+  const auto size = input.size();
+  image<gray> result({(size.width + step - 1) / step, (size.height + step - 1) / step});
+  auto out = result.view();
+  for (std::size_t y = 0; y < out.size().height; ++y)
+    for (std::size_t x = 0; x < out.size().width; ++x) {
+      float value = minimum ? 1.f : 0.f;
+      for (std::size_t sy = y * step; sy < std::min((y + 1) * step, size.height); ++sy) {
+        const auto row = input.row(sy);
+        for (std::size_t sx = x * step; sx < std::min((x + 1) * step, size.width); ++sx)
+          value = minimum ? std::min(value, row[sx].value) : std::max(value, row[sx].value);
+      }
+      out.at(x, y).value = value;
+    }
+  return result;
+}
+
+result<image<gray>> warp_reliability(const frame &source, extent size, rectangle region,
+                                     focus_stack_profile &profile) {
+  ++profile.scalar_warp_calls;
+  scoped_time measured(profile.warp_seconds);
+  double minx = size.width - 1, miny = size.height - 1, maxx = 0, maxy = 0;
+  for (auto x : {region.x, region.x + region.width - 1})
+    for (auto y : {region.y, region.y + region.height - 1}) {
+      const auto p = inverse(source.alignment, x, y);
+      minx = std::min(minx, p[0]);
+      maxx = std::max(maxx, p[0]);
+      miny = std::min(miny, p[1]);
+      maxy = std::max(maxy, p[1]);
+    }
+  const auto x0 =
+      static_cast<std::size_t>(std::clamp(std::floor(minx), 0., double(size.width - 1)));
+  const auto y0 =
+      static_cast<std::size_t>(std::clamp(std::floor(miny), 0., double(size.height - 1)));
+  const auto x1 = static_cast<std::size_t>(
+      std::clamp(std::ceil(maxx) + 1, double(x0 + 1), double(size.width)));
+  const auto y1 = static_cast<std::size_t>(
+      std::clamp(std::ceil(maxy) + 1, double(y0 + 1), double(size.height)));
+  auto input = read_patch<gray>(source.pixels.string() + ".exposure", size,
+                                {x0, y0, x1 - x0, y1 - y0}, profile);
+  if (!input)
+    return std::unexpected(input.error());
+  image<gray> output({region.width, region.height});
+  auto out = output.view();
+  for (std::size_t y = 0; y < region.height; ++y)
+    for (std::size_t x = 0; x < region.width; ++x) {
+      const auto p = inverse(source.alignment, region.x + x, region.y + y);
+      out.at(x, y).value = valid_point(size, p[0], p[1])
+                               ? scalar_extreme(input->view(), p[0] - x0, p[1] - y0, true)
+                               : 0;
+    }
+  return output;
+}
+
 image<rgb_f32> proxy(image_view<const rgb_f32> pixels, std::size_t step) {
   image<rgb_f32> output(
       {(pixels.size().width + step - 1) / step, (pixels.size().height + step - 1) / step});
@@ -527,6 +604,7 @@ struct coherent_maps {
   std::vector<std::uint16_t> label;
   image<gray> confidence, motion, boundary;
   std::vector<std::uint16_t> boundary_source;
+  image<gray> exposure_confidence{}, clipping{}, low_snr{}, hdr_motion{};
 };
 
 float boundary_alpha(const coherent_maps &maps, std::size_t gx, std::size_t gy,
@@ -556,6 +634,15 @@ result<coherent_maps> analyze(const std::vector<frame> &frames, extent full, std
                               focus_stack_profile &profile) {
   const extent size{(full.width + step - 1) / step, (full.height + step - 1) / step};
   const auto count = size.width * size.height;
+  const bool matrix = frames.front().hdr;
+  image<gray> reference_quality, best_quality(matrix ? size : extent{});
+  if (matrix) {
+    auto q = read_patch<gray>(frames[reference].pixels.string() + ".exposure.proxy", size,
+                              {0, 0, size.width, size.height}, profile);
+    if (!q)
+      return std::unexpected(q.error());
+    reference_quality = std::move(*q);
+  }
   auto ref = read_patch<rgb_f32>(frames[reference].pixels.string() + ".color", size,
                                  {0, 0, size.width, size.height}, profile);
   if (!ref)
@@ -568,12 +655,31 @@ result<coherent_maps> analyze(const std::vector<frame> &frames, extent full, std
                      image<gray>(size),
                      image<gray>(size),
                      std::vector<std::uint16_t>(count, reference)};
+  if (matrix) {
+    maps.exposure_confidence = image<gray>(size);
+    maps.clipping = image<gray>(size);
+    maps.low_snr = image<gray>(size);
+    maps.hdr_motion = image<gray>(size);
+  }
   image<gray> best(size), second(size), missing(size);
   for (std::size_t i = 0; i < frames.size(); ++i) {
     auto src = read_patch<rgb_f32>(frames[i].pixels.string() + ".color", size,
                                    {0, 0, size.width, size.height}, profile);
     if (!src)
       return std::unexpected(src.error());
+    image<gray> source_quality, source_motion, aligned_quality(matrix ? size : extent{});
+    if (matrix) {
+      auto q = read_patch<gray>(frames[i].pixels.string() + ".exposure.proxy", size,
+                                {0, 0, size.width, size.height}, profile);
+      if (!q)
+        return std::unexpected(q.error());
+      source_quality = std::move(*q);
+      auto motion = read_patch<gray>(frames[i].pixels.string() + ".hdr-motion.proxy", size,
+                                     {0, 0, size.width, size.height}, profile);
+      if (!motion)
+        return std::unexpected(motion.error());
+      source_motion = std::move(*motion);
+    }
     image<gray> warped(size), valid(size), motion(size);
     image<rgb_f32> color(size);
     const double center = (step - 1) * .5;
@@ -584,6 +690,19 @@ result<coherent_maps> analyze(const std::vector<frame> &frames, extent full, std
             bilinear<rgb_f32>(src->view(), (p[0] - center) / step, (p[1] - center) / step);
         warped.view().at(x, y).value = luminance(color.view().at(x, y), encoding);
         valid.view().at(x, y).value = valid_point(full, p[0], p[1]);
+        if (matrix) {
+          const double sx = (p[0] - center) / step, sy = (p[1] - center) / step;
+          const float q = valid_point(full, p[0], p[1])
+                              ? scalar_extreme(source_quality.view(), sx, sy, true)
+                              : 0;
+          aligned_quality.view().at(x, y).value = q;
+          best_quality.view().at(x, y).value = std::max(best_quality.view().at(x, y).value, q);
+          if (valid_point(full, p[0], p[1]) &&
+              scalar_extreme(source_motion.view(), sx, sy, false) > 0) {
+            maps.hdr_motion.view().at(x, y).value = 1;
+            maps.motion.view().at(x, y).value = 1;
+          }
+        }
       }
     auto score = [&] {
       scoped_time measured(profile.focus_score_seconds);
@@ -594,6 +713,8 @@ result<coherent_maps> analyze(const std::vector<frame> &frames, extent full, std
     for (std::size_t y = 0; y < size.height; ++y)
       for (std::size_t x = 0; x < size.width; ++x) {
         float s = score.view().at(x, y).value;
+        if (matrix)
+          s *= aligned_quality.view().at(x, y).value;
         if (!valid.view().at(x, y).value) {
           s = 0;
           missing.view().at(x, y).value = 1;
@@ -607,7 +728,9 @@ result<coherent_maps> analyze(const std::vector<frame> &frames, extent full, std
         } else if (s > other) {
           other = s;
         }
-        if (valid.view().at(x, y).value && i != reference) {
+        if (valid.view().at(x, y).value && i != reference &&
+            (!matrix || (aligned_quality.view().at(x, y).value > .05f &&
+                         reference_quality.view().at(x, y).value > .05f))) {
           const auto r = low_ref.view().at(x, y), c = low.view().at(x, y);
           if (std::abs(c.r - r.r) > .06f + .2f * std::abs(r.r) ||
               std::abs(c.g - r.g) > .06f + .2f * std::abs(r.g) ||
@@ -625,6 +748,12 @@ result<coherent_maps> analyze(const std::vector<frame> &frames, extent full, std
       return std::unexpected(written.error());
     if (auto written = save<gray>(frames[i].scores, score.view(), profile); !written)
       return std::unexpected(written.error());
+    if (matrix) {
+      if (auto written = save<gray>(frames[i].pixels.string() + ".exposure-aligned",
+                                    aligned_quality.view(), profile);
+          !written)
+        return std::unexpected(written.error());
+    }
   }
   for (std::size_t y = 0; y < size.height; ++y)
     for (std::size_t x = 0; x < size.width; ++x) {
@@ -644,8 +773,24 @@ result<coherent_maps> analyze(const std::vector<frame> &frames, extent full, std
           read_patch<gray>(frames[i].scores, size, {0, 0, size.width, size.height}, profile);
       if (!score)
         return std::unexpected(score.error());
+      image<gray> quality;
+      if (matrix) {
+        auto q = read_patch<gray>(frames[i].pixels.string() + ".exposure-aligned", size,
+                                  {0, 0, size.width, size.height}, profile);
+        if (!q)
+          return std::unexpected(q.error());
+        quality = std::move(*q);
+      }
       for (std::size_t y = 0; y < size.height; ++y)
         for (std::size_t x = 0; x < size.width; ++x) {
+          if (matrix) {
+            if (best_quality.view().at(x, y).value <= .01f) {
+              next[y * size.width + x] = reference;
+              continue;
+            }
+            if (quality.view().at(x, y).value <= .01f)
+              continue;
+          }
           int different = 0;
           for (auto [dx, dy] : {std::pair{-1, 0}, {1, 0}, {0, -1}, {0, 1}}) {
             const auto sx = std::clamp<long>(x + dx, 0, size.width - 1);
@@ -685,6 +830,14 @@ result<coherent_maps> analyze(const std::vector<frame> &frames, extent full, std
                                           {0, 0, size.width, size.height}, profile);
   if (!reference_score)
     return std::unexpected(reference_score.error());
+  image<gray> aligned_reference_quality;
+  if (matrix) {
+    auto q = read_patch<gray>(frames[reference].pixels.string() + ".exposure-aligned", size,
+                              {0, 0, size.width, size.height}, profile);
+    if (!q)
+      return std::unexpected(q.error());
+    aligned_reference_quality = std::move(*q);
+  }
   image<gray> boundary_rank(size);
   for (std::size_t i = 0; i < frames.size(); ++i) {
     if (i == reference)
@@ -711,13 +864,26 @@ result<coherent_maps> analyze(const std::vector<frame> &frames, extent full, std
       return std::unexpected(source.error());
     if (!motion)
       return std::unexpected(motion.error());
+    image<gray> aligned_source_quality;
+    if (matrix) {
+      auto q = read_patch<gray>(frames[i].pixels.string() + ".exposure-aligned", size,
+                                {0, 0, size.width, size.height}, profile);
+      if (!q)
+        return std::unexpected(q.error());
+      aligned_source_quality = std::move(*q);
+    }
     auto guard = defocus_pair(ref_color->view(), source->view(), transition.view(), encoding,
                               maps.label, i, reference);
     for (std::size_t y = 0; y < size.height; ++y)
       for (std::size_t x = 0; x < size.width; ++x) {
         const auto index = y * size.width + x;
         const float signed_alpha = guard.view().at(x, y).value;
-        const float alpha = missing.view().at(x, y).value ? 0 : std::abs(signed_alpha);
+        const float reliability =
+            matrix ? std::min(aligned_reference_quality.view().at(x, y).value,
+                              aligned_source_quality.view().at(x, y).value)
+                   : 1;
+        const float alpha =
+            missing.view().at(x, y).value ? 0 : std::abs(signed_alpha) * reliability;
         const auto owner = signed_alpha > 0 ? i : reference;
         const float score = signed_alpha > 0 ? source_score->view().at(x, y).value
                                              : reference_score->view().at(x, y).value;
@@ -749,13 +915,41 @@ result<coherent_maps> analyze(const std::vector<frame> &frames, extent full, std
         maps.boundary.view().at(x, y).value = 0;
       }
     }
+  if (matrix) {
+    for (std::size_t i = 0; i < frames.size(); ++i) {
+      auto q = read_patch<gray>(frames[i].pixels.string() + ".exposure-aligned", size,
+                                {0, 0, size.width, size.height}, profile);
+      auto clip = read_patch<gray>(frames[i].pixels.string() + ".clipping.proxy", size,
+                                   {0, 0, size.width, size.height}, profile);
+      auto low = read_patch<gray>(frames[i].pixels.string() + ".low-snr.proxy", size,
+                                  {0, 0, size.width, size.height}, profile);
+      if (!q)
+        return std::unexpected(q.error());
+      if (!clip)
+        return std::unexpected(clip.error());
+      if (!low)
+        return std::unexpected(low.error());
+      const double center = (step - 1) * .5;
+      for (std::size_t y = 0; y < size.height; ++y)
+        for (std::size_t x = 0; x < size.width; ++x)
+          if (maps.label[y * size.width + x] == i) {
+            const auto p = inverse(frames[i].alignment, x * step + center, y * step + center);
+            const double sx = (p[0] - center) / step, sy = (p[1] - center) / step;
+            maps.exposure_confidence.view().at(x, y) = q->view().at(x, y);
+            maps.clipping.view().at(x, y).value = scalar_extreme(clip->view(), sx, sy, false);
+            maps.low_snr.view().at(x, y).value = scalar_extreme(low->view(), sx, sy, false);
+          }
+    }
+  }
   return maps;
 }
 
 image<gray> tile_weight(image_view<const rgb_f32> warped, const frame &source, extent full,
                         rectangle area, const coherent_maps &maps, std::size_t step,
                         std::size_t reference, std::size_t i, const color_encoding &encoding,
-                        image_view<const gray> boundary, focus_stack_profile &profile) {
+                        image_view<const gray> boundary, focus_stack_profile &profile,
+                        image_view<const gray> reliability = {},
+                        image_view<const gray> maximum_reliability = {}) {
   scoped_time measured(profile.focus_score_seconds);
   ++profile.focus_evaluations;
   image<gray> ymap({area.width, area.height});
@@ -783,6 +977,10 @@ image<gray> tile_weight(image_view<const rgb_f32> warped, const frame &source, e
         w = 0;
       if (maps.boundary_source[my * maps.size.width + mx] != i)
         w *= 1 - .999f * boundary.at(x, y).value;
+      if (reliability.size().width)
+        w *= reliability.at(x, y).value;
+      if (maximum_reliability.size().width && maximum_reliability.at(x, y).value <= .01f)
+        w = i == reference ? 1 : 0;
       if (maps.motion.view().at(mx, my).value)
         w = i == reference ? 1 : 0;
     }
@@ -819,17 +1017,84 @@ result<image<rgb_f32>> fuse_tile(const std::vector<frame> &frames, extent full, 
   std::vector<tile_source> cache;
   if (cache_sources)
     cache.reserve(frames.size());
-  for (std::size_t i = 0; i < frames.size(); ++i) {
-    auto warped = warp_patch(frames[i], full, area, profile);
-    if (!warped)
-      return std::unexpected(warped.error());
-    auto weight = tile_weight(warped->view(), frames[i], full, area, maps, step, reference, i,
-                              encoding, boundary.view(), profile);
-    for (std::size_t y = 0; y < area.height; ++y)
+  const bool matrix = frames.front().hdr;
+  image<gray> maximum_reliability(matrix ? extent{area.width, area.height} : extent{});
+  image<rgb_f32> donor(matrix ? extent{area.width, area.height} : extent{});
+  const auto fill_invalid = [&](image_view<rgb_f32> pixels, image_view<const gray> quality) {
+    for (std::size_t y = 0; y < area.height; ++y) {
+      auto row = pixels.row(y);
+      const auto q = quality.row(y);
+      const auto source = donor.view().row(y);
       for (std::size_t x = 0; x < area.width; ++x)
-        total.view().at(x, y).value += weight.view().at(x, y).value;
+        if (q[x].value <= .01f)
+          row[x] = source[x];
+    }
+  };
+  if (!matrix) {
+    for (std::size_t i = 0; i < frames.size(); ++i) {
+      auto warped = warp_patch(frames[i], full, area, profile);
+      if (!warped)
+        return std::unexpected(warped.error());
+      auto weight = tile_weight(warped->view(), frames[i], full, area, maps, step, reference, i,
+                                encoding, boundary.view(), profile);
+      for (std::size_t y = 0; y < area.height; ++y)
+        for (std::size_t x = 0; x < area.width; ++x)
+          total.view().at(x, y).value += weight.view().at(x, y).value;
+      if (cache_sources)
+        cache.push_back({std::move(*warped), std::move(weight)});
+    }
+  } else {
+    image<gray> donor_rank({area.width, area.height});
     if (cache_sources)
-      cache.push_back({std::move(*warped), std::move(weight)});
+      cache.resize(frames.size());
+    for (std::size_t pass = 0; pass < frames.size(); ++pass) {
+      const auto i = pass == 0 ? reference : pass <= reference ? pass - 1 : pass;
+      auto warped = warp_patch(frames[i], full, area, profile);
+      auto quality = warp_reliability(frames[i], full, area, profile);
+      if (!warped)
+        return std::unexpected(warped.error());
+      if (!quality)
+        return std::unexpected(quality.error());
+      for (std::size_t y = 0; y < area.height; ++y)
+        for (std::size_t x = 0; x < area.width; ++x) {
+          const float q = quality->view().at(x, y).value;
+          const auto mx = std::min((area.x + x) / step, maps.size.width - 1),
+                     my = std::min((area.y + y) / step, maps.size.height - 1);
+          maximum_reliability.view().at(x, y).value =
+              std::max(maximum_reliability.view().at(x, y).value, q);
+          if (pass == 0)
+            donor.view().at(x, y) = warped->view().at(x, y);
+          // This is support filling for pyramid construction, never the final focus map.
+          const float rank =
+              q > .01f ? q + (maps.label[my * maps.size.width + mx] == i ? 2.f : 0.f) : 0;
+          if (!maps.motion.view().at(mx, my).value && rank > donor_rank.view().at(x, y).value) {
+            donor_rank.view().at(x, y).value = rank;
+            donor.view().at(x, y) = warped->view().at(x, y);
+          }
+        }
+      if (cache_sources)
+        cache[i] = {std::move(*warped), std::move(*quality)};
+    }
+    donor_rank = {};
+    for (std::size_t i = 0; i < frames.size(); ++i) {
+      auto warped = cache_sources ? result<image<rgb_f32>>(std::move(cache[i].pixels))
+                                  : warp_patch(frames[i], full, area, profile);
+      auto quality = cache_sources ? result<image<gray>>(std::move(cache[i].weight))
+                                   : warp_reliability(frames[i], full, area, profile);
+      if (!warped)
+        return std::unexpected(warped.error());
+      if (!quality)
+        return std::unexpected(quality.error());
+      fill_invalid(warped->view(), quality->view());
+      auto weight =
+          tile_weight(warped->view(), frames[i], full, area, maps, step, reference, i, encoding,
+                      boundary.view(), profile, quality->view(), maximum_reliability.view());
+      for (std::size_t y = 0; y < area.height; ++y)
+        for (std::size_t x = 0; x < area.width; ++x)
+          total.view().at(x, y).value += weight.view().at(x, y).value;
+      if (cache_sources)
+        cache[i] = {std::move(*warped), std::move(weight)};
+    }
   }
   if (cache_sources)
     profile.peak_tile_cache_bytes =
@@ -840,9 +1105,18 @@ result<image<rgb_f32>> fuse_tile(const std::vector<frame> &frames, extent full, 
                                 : warp_patch(frames[i], full, area, profile);
     if (!warped)
       return std::unexpected(warped.error());
+    image<gray> quality;
+    if (matrix && !cache_sources) {
+      auto q = warp_reliability(frames[i], full, area, profile);
+      if (!q)
+        return std::unexpected(q.error());
+      quality = std::move(*q);
+      fill_invalid(warped->view(), quality.view());
+    }
     auto weight = cache_sources ? std::move(cache[i].weight)
                                 : tile_weight(warped->view(), frames[i], full, area, maps, step,
-                                              reference, i, encoding, boundary.view(), profile);
+                                              reference, i, encoding, boundary.view(), profile,
+                                              quality.view(), maximum_reliability.view());
     for (std::size_t y = 0; y < area.height; ++y)
       for (std::size_t x = 0; x < area.width; ++x)
         weight.view().at(x, y).value /= total.view().at(x, y).value;
@@ -905,7 +1179,8 @@ result<image<rgb_f32>> fuse_tile(const std::vector<frame> &frames, extent full, 
     for (std::size_t x = 0; x < area.width; ++x) {
       const auto mx = std::min((area.x + x) / step, maps.size.width - 1);
       const auto my = std::min((area.y + y) / step, maps.size.height - 1);
-      bool fallback = maps.motion.view().at(mx, my).value;
+      bool fallback = maps.motion.view().at(mx, my).value ||
+                      (matrix && maximum_reliability.view().at(x, y).value <= .01f);
       for (const auto &source : frames) {
         const auto p = inverse(source.alignment, area.x + x, area.y + y);
         fallback |= !valid_point(full, p[0], p[1]);
@@ -979,9 +1254,32 @@ result<image<linear_rgb>> preview_spool(const fs::path &path, const focus_stack_
   return output;
 }
 
+result<void> copy_diagnostic(const fs::path &source, const fs::path &destination) {
+  auto transaction = atomic_output::create(destination.string());
+  if (!transaction)
+    return std::unexpected(transaction.error());
+  std::ifstream input(source, std::ios::binary);
+  std::ofstream output(transaction->temporary_path(), std::ios::binary);
+  if (!input || !output)
+    return fail(error_code::io, "focus matrix diagnostics", "cannot open artifact",
+                source.string());
+  std::array<char, 65536> buffer{};
+  while (input.read(buffer.data(), buffer.size()) || input.gcount())
+    output.write(buffer.data(), input.gcount());
+  if (!input.eof())
+    return fail(error_code::io, "focus matrix diagnostics", "cannot read complete artifact",
+                source.string());
+  output.close();
+  if (!output)
+    return fail(error_code::io, "focus matrix diagnostics", "cannot finish artifact",
+                destination.string());
+  return transaction->commit();
+}
+
 result<void> diagnostics(const std::string &directory, const coherent_maps &maps,
                          focus_stack_report &report, const fs::path &reference_pixels,
-                         const fs::path &fused_pixels) {
+                         const fs::path &fused_pixels,
+                         std::span<const detail::hdr_plane_input> matrix_inputs) {
   auto &profile = report.profile;
   const auto diagnostics_start = monotonic_clock::now();
   std::error_code ec;
@@ -989,6 +1287,43 @@ result<void> diagnostics(const std::string &directory, const coherent_maps &maps
   if (ec)
     return fail(error_code::io, "focus diagnostics", ec.message(), directory);
   const fs::path root(directory);
+  if (!matrix_inputs.empty()) {
+    constexpr std::array<const char *, 6> names{"confidence.tif",     "deghost.tif",
+                                                "clipping.tif",       "low-snr.tif",
+                                                "deghost-source.tif", "report.json"};
+    for (std::size_t i = 0; i < matrix_inputs.size(); ++i) {
+      const auto destination = root / ("hdr-plane-" + std::to_string(i));
+      fs::create_directories(destination, ec);
+      if (ec)
+        return fail(error_code::io, "focus matrix diagnostics", ec.message(),
+                    destination.string());
+      for (const auto *name : names) {
+        auto copied = copy_diagnostic(fs::path(matrix_inputs[i].diagnostics_source) / name,
+                                      destination / name);
+        if (!copied)
+          return copied;
+      }
+    }
+    constexpr std::array<const char *, 5> names2{"hdr-confidence.tif", "hdr-clipping.tif",
+                                                 "hdr-low-snr.tif", "hdr-deghost.tif",
+                                                 "combined-confidence.tif"};
+    const std::array<const image<gray> *, 4> fields{&maps.exposure_confidence, &maps.clipping,
+                                                    &maps.low_snr, &maps.hdr_motion};
+    for (std::size_t kind = 0; kind < names2.size(); ++kind) {
+      auto written = write_scalar_tiff_rows(
+          (root / names2[kind]).string(), maps.size,
+          std::string("focus-matrix-") + names2[kind] + ";" + report.encoding.normalization,
+          [&](std::size_t y, std::span<gray> row) -> result<void> {
+            for (std::size_t x = 0; x < row.size(); ++x)
+              row[x].value = kind < 4 ? fields[kind]->view().at(x, y).value
+                                      : maps.confidence.view().at(x, y).value *
+                                            maps.exposure_confidence.view().at(x, y).value;
+            return {};
+          });
+      if (!written)
+        return written;
+    }
+  }
   image<linear_rgb> preview(maps.size);
   for (const auto *name : {"source-map.tif", "confidence.tif", "motion.tif",
                            "defocus-boundary.tif", "boundary-source.tif"}) {
@@ -1026,11 +1361,16 @@ result<void> diagnostics(const std::string &directory, const coherent_maps &maps
   std::ofstream file(transaction->temporary_path());
   file.imbue(std::locale::classic());
   file << std::setprecision(12);
-  file << "{\n  \"algorithm\": \"focus-stack-defocus-v1\",\n"
+  file << "{\n  \"algorithm\": \""
+       << (report.hdr_planes.empty() ? "focus-stack-defocus-v1" : "focus-hdr-matrix-v1")
+       << "\",\n"
        << "  \"working_space\": \""
        << (report.raw_context ? "float32 linear-Rec.2020/D65" : "float32 linear-sRGB/D65")
        << "\",\n"
-       << "  \"input_origin\": \"" << (report.raw_context ? "scene_linear_raw" : "rendered_rgb")
+       << "  \"input_origin\": \""
+       << (!report.hdr_planes.empty() ? "scene_linear_hdr_planes"
+           : report.raw_context       ? "scene_linear_raw"
+                                      : "rendered_rgb")
        << "\",\n"
        << "  \"output_encoding\": \""
        << (report.raw_context ? "float32 linear Rec.2020 ICC TIFF" : "16-bit sRGB ICC TIFF")
@@ -1045,7 +1385,10 @@ result<void> diagnostics(const std::string &directory, const coherent_maps &maps
        << ",\n  \"scratch_bytes\": " << report.scratch_bytes
        << ",\n  \"motion_fraction\": " << report.motion_fraction
        << ",\n  \"defocus_boundary_fraction\": " << report.defocus_boundary_fraction
-       << ",\n  \"low_confidence_fraction\": " << report.low_confidence_fraction << ",\n";
+       << ",\n  \"low_confidence_fraction\": " << report.low_confidence_fraction
+       << ",\n  \"working_minimum\":" << report.working_minimum
+       << ",\n  \"working_maximum\":" << report.working_maximum
+       << ",\n  \"matrix_intermediate_bytes\":" << report.matrix_intermediate_bytes << ",\n";
   file << "  \"tile_sources_cached\":" << (report.tile_sources_cached ? "true" : "false")
        << ",\n  \"tile_cache_capacity_bytes\":" << report.tile_cache_capacity_bytes << ",\n"
        << "  \"profile\": {";
@@ -1071,6 +1414,10 @@ result<void> diagnostics(const std::string &directory, const coherent_maps &maps
   file << ",\"warp_calls\":" << profile.warp_calls;
   file << ",\"focus_evaluations\":" << profile.focus_evaluations;
   file << ",\"peak_tile_cache_bytes\":" << profile.peak_tile_cache_bytes;
+  file << ",\"scalar_warp_calls\":" << profile.scalar_warp_calls;
+  file << ",\"hdr_seconds\":" << profile.hdr_seconds;
+  file << ",\"matrix_preflight_seconds\":" << profile.matrix_preflight_seconds;
+  file << ",\"hdr_scratch_peak_file_bytes\":" << profile.hdr_scratch_peak_file_bytes;
   file << "},\n";
   if (report.raw_context) {
     const auto &context = *report.raw_context;
@@ -1082,8 +1429,10 @@ result<void> diagnostics(const std::string &directory, const coherent_maps &maps
          << ",\"color_reference_index\":" << context.reference_index()
          << ",\"calibration\":\"LibRaw daylight camera-to-XYZ/D65, diagonal WB once\""
          << ",\"demosaic\":\"float directional Bayer v1\""
-         << ",\"exposure_policy\":\"strict metadata match; shared green-normalized sensor "
-            "white\""
+         << ",\"exposure_policy\":"
+         << json_string(report.hdr_planes.empty()
+                            ? "strict metadata match; shared green-normalized sensor white"
+                            : "shutter_bracket")
          << ",\"iso\":" << ref.iso << ",\"shutter_seconds\":" << ref.shutter_seconds
          << ",\"aperture\":" << ref.aperture << ",\"white_balance\":";
     json_array(file, context.white_balance());
@@ -1114,7 +1463,11 @@ result<void> diagnostics(const std::string &directory, const coherent_maps &maps
          << ",\"refinement_samples\":" << t.refinement_samples
          << ",\"refined\":" << (t.refined ? "true" : "false")
          << ",\"selected_fraction\":" << f.selected_fraction;
-    if (report.raw_context) {
+    if (!report.hdr_planes.empty()) {
+      file << ",\"focus_plane\":" << json_string(report.hdr_planes[i].name)
+           << ",\"hdr_report\":"
+           << json_string("hdr-plane-" + std::to_string(i) + "/report.json");
+    } else if (report.raw_context) {
       const auto &m = report.raw_context->frames()[i];
       const auto &stats = f.raw_statistics;
       file << ",\"input_path\":" << json_string(m.path)
@@ -1128,7 +1481,39 @@ result<void> diagnostics(const std::string &directory, const coherent_maps &maps
     }
     file << '}' << (i + 1 == report.frames.size() ? "\n" : ",\n");
   }
-  file << "  ]\n}\n";
+  file << "  ]";
+  if (!report.hdr_planes.empty()) {
+    file << ",\n\"hdr_planes\":[";
+    for (std::size_t i = 0; i < report.hdr_planes.size(); ++i) {
+      const auto &plane = report.hdr_planes[i];
+      const auto &hdr = plane.hdr;
+      if (i)
+        file << ',';
+      file << "{\"name\":" << json_string(plane.name)
+           << ",\"reference_index\":" << hdr.reference_index
+           << ",\"raw_context\":" << json_string(hdr.raw_context->fingerprint())
+           << ",\"deghost_fraction\":" << hdr.deghost_fraction
+           << ",\"clipped_fraction\":" << hdr.clipped_fraction
+           << ",\"low_snr_fraction\":" << hdr.low_snr_fraction << ",\"minimum\":" << hdr.minimum
+           << ",\"maximum\":" << hdr.maximum
+           << ",\"report\":" << json_string("hdr-plane-" + std::to_string(i) + "/report.json")
+           << ",\"exposures\":[";
+      for (std::size_t e = 0; e < hdr.frames.size(); ++e) {
+        const auto &f = hdr.frames[e];
+        const auto &m = hdr.raw_context->frames()[f.context_index];
+        if (e)
+          file << ',';
+        file << "{\"context_index\":" << f.context_index << ",\"path\":" << json_string(m.path)
+             << ",\"shutter_seconds\":" << f.shutter_seconds
+             << ",\"exposure_scale\":" << f.exposure_scale
+             << ",\"contribution_fraction\":" << f.contribution_fraction
+             << ",\"sensor_saturated_fraction\":" << f.raw_statistics.saturated_fraction << '}';
+      }
+      file << "]}";
+    }
+    file << ']';
+  }
+  file << "\n}\n";
   file.close();
   if (!file)
     return fail(error_code::io, "focus diagnostics", "cannot finalize JSON", directory);
@@ -1136,10 +1521,14 @@ result<void> diagnostics(const std::string &directory, const coherent_maps &maps
 }
 } // namespace
 
-result<focus_stack_report> stack_focus(std::span<const std::string> inputs,
-                                       const std::string &output,
-                                       const focus_stack_options &options) {
-  focus_stack_report report;
+namespace {
+result<focus_stack_report>
+stack_focus_impl(std::span<const std::string> inputs, const std::string &output,
+                 const focus_stack_options &options,
+                 std::span<const detail::hdr_plane_input> matrix_inputs = {},
+                 focus_stack_report report = {}) {
+  const bool matrix = !matrix_inputs.empty();
+  const auto prior_seconds = report.profile.total_seconds;
   auto &profile = report.profile;
   const auto run_start = monotonic_clock::now();
   if (inputs.size() < 2 || inputs.size() > 256 || options.memory_budget_mib < 512 ||
@@ -1170,19 +1559,30 @@ result<focus_stack_report> stack_focus(std::span<const std::string> inputs,
                     path.string());
     }
   }
+  if (matrix && !options.diagnostics_directory.empty()) {
+    for (const auto *name : {"hdr-confidence.tif", "hdr-clipping.tif", "hdr-low-snr.tif",
+                             "hdr-deghost.tif", "combined-confidence.tif"}) {
+      const auto path = fs::path(options.diagnostics_directory) / name;
+      const auto status = fs::symlink_status(path, ec);
+      if (!ec && status.type() != fs::file_type::not_found)
+        return fail(error_code::io, "focus matrix diagnostics", "output already exists",
+                    path.string());
+    }
+  }
   const auto raw_path = [](const std::string &path) {
     auto suffix = fs::path(path).extension().string();
     std::ranges::transform(suffix, suffix.begin(),
                            [](unsigned char c) { return std::tolower(c); });
     return suffix == ".cr3" || suffix == ".dng";
   };
-  const bool raw = raw_path(inputs.front());
-  for (const auto &path : inputs)
-    if (raw_path(path) != raw)
-      return fail(error_code::invalid_argument, "focus preflight",
-                  "mixed RAW/rendered sequence", path);
-  std::optional<raw_sequence_context> context;
-  if (raw) {
+  const bool raw = matrix || raw_path(inputs.front());
+  if (!matrix)
+    for (const auto &path : inputs)
+      if (raw_path(path) != raw)
+        return fail(error_code::invalid_argument, "focus preflight",
+                    "mixed RAW/rendered sequence", path);
+  std::optional<raw_sequence_context> context = std::move(report.raw_context);
+  if (raw && !matrix) {
     raw_sequence_options settings;
     settings.reference_index = options.reference_index;
     settings.memory_budget_mib = options.memory_budget_mib;
@@ -1195,8 +1595,9 @@ result<focus_stack_report> stack_focus(std::span<const std::string> inputs,
   std::size_t largest_file = 0;
   for (std::size_t i = 0; i < inputs.size(); ++i) {
     const auto &path = inputs[i];
-    auto dimensions = raw ? result<extent>(context->frames()[i].output_dimensions)
-                          : rendered_image_size(path);
+    auto dimensions = matrix ? result<extent>(context->reference().output_dimensions)
+                      : raw  ? result<extent>(context->frames()[i].output_dimensions)
+                             : rendered_image_size(path);
     if (!dimensions)
       return std::unexpected(dimensions.error());
     if (size.width && (size.width != dimensions->width || size.height != dimensions->height))
@@ -1204,7 +1605,7 @@ result<focus_stack_report> stack_focus(std::span<const std::string> inputs,
                   path);
     size = *dimensions;
     const auto bytes = fs::file_size(path, ec);
-    if (ec || bytes > 1024ULL * 1024 * 1024)
+    if (ec || bytes > (matrix ? 3ULL : 1ULL) * 1024 * 1024 * 1024)
       return fail(error_code::invalid_argument, "focus preflight",
                   "missing or oversized input (>1 GiB)", path);
     largest_file = std::max(largest_file, static_cast<std::size_t>(bytes));
@@ -1217,7 +1618,7 @@ result<focus_stack_report> stack_focus(std::span<const std::string> inputs,
   const std::size_t pixels = size.width * size.height;
   const std::size_t budget = options.memory_budget_mib * mib;
   const std::size_t usable = budget * 4 / 5;
-  std::size_t decode = 24 * pixels + largest_file + 128 * mib;
+  std::size_t decode = (matrix ? 32 : 24) * pixels + largest_file + 128 * mib;
   if (context)
     for (const auto &m : context->frames())
       decode = std::max(decode, m.decode_reserve_bytes);
@@ -1233,7 +1634,8 @@ result<focus_stack_report> stack_focus(std::span<const std::string> inputs,
   while (true) {
     q = ((size.width + step - 1) / step) * ((size.height + step - 1) / step);
     registration = 512 * q + 128 * mib;
-    fusion = 256 * q + 512 * (tile + 2 * halo) * (tile + 2 * halo) + 128 * mib;
+    fusion = (matrix ? 320 : 256) * q +
+             (matrix ? 544 : 512) * (tile + 2 * halo) * (tile + 2 * halo) + 128 * mib;
     if (std::max(registration, fusion) <= usable)
       break;
     if (registration > usable && (size.width + step - 1) / step >= 64 &&
@@ -1248,7 +1650,10 @@ result<focus_stack_report> stack_focus(std::span<const std::string> inputs,
   }
   const auto tile_pixels = (tile + 2 * halo) * (tile + 2 * halo);
   const auto cached_fusion =
-      256 * q + std::max<std::size_t>(512, 384 + 16 * inputs.size()) * tile_pixels + 128 * mib;
+      (matrix ? 320 : 256) * q +
+      std::max<std::size_t>(matrix ? 544 : 512, (matrix ? 416 : 384) + 16 * inputs.size()) *
+          tile_pixels +
+      128 * mib;
   report.tile_sources_cached = cached_fusion <= usable;
   if (report.tile_sources_cached) {
     fusion = cached_fusion;
@@ -1265,9 +1670,13 @@ result<focus_stack_report> stack_focus(std::span<const std::string> inputs,
   const auto reference = options.reference_index == static_cast<std::size_t>(-1)
                              ? inputs.size() / 2
                              : options.reference_index;
-  const std::size_t scratch_bytes = (inputs.size() + 1) * 12 * pixels +
-                                    inputs.size() * (36 * q + 4 * refinement_pixels()) +
-                                    (raw ? 12 : 6) * pixels;
+  const std::size_t scratch_bytes =
+      (inputs.size() + 1) * 12 * pixels +
+      inputs.size() * ((matrix ? 56 : 36) * q + 4 * refinement_pixels()) +
+      (raw ? 12 : 6) * pixels + (matrix ? 16 * inputs.size() * pixels : 0) +
+      report.matrix_intermediate_bytes +
+      (matrix && !options.diagnostics_directory.empty() ? 16 * inputs.size() * pixels + 24 * q
+                                                        : 0);
   ec.clear();
   const auto scratch_parent = options.scratch_directory.empty()
                                   ? fs::temp_directory_path(ec)
@@ -1275,7 +1684,7 @@ result<focus_stack_report> stack_focus(std::span<const std::string> inputs,
   if (ec)
     return fail(error_code::io, "focus scratch", ec.message());
   const auto space = fs::space(scratch_parent, ec);
-  if (ec || space.available < scratch_bytes)
+  if (ec || space.available < scratch_bytes - report.matrix_intermediate_bytes)
     return fail(error_code::io, "focus scratch",
                 "insufficient scratch space or invalid directory", scratch_parent.string());
   scratch_run scratch;
@@ -1289,8 +1698,9 @@ result<focus_stack_report> stack_focus(std::span<const std::string> inputs,
   report.tile_size = tile;
   report.proxy_step = step;
   report.refinement_step = refinement_step;
-  report.estimated_peak_bytes = std::max({decode, registration, fusion}) * 5 / 4;
-  report.scratch_bytes = scratch_bytes;
+  report.estimated_peak_bytes =
+      std::max(report.estimated_peak_bytes, std::max({decode, registration, fusion}) * 5 / 4);
+  report.scratch_bytes = std::max(report.scratch_bytes, scratch_bytes);
   report.frames.resize(inputs.size());
   report.raw_context = std::move(context);
   if (report.raw_context)
@@ -1313,6 +1723,7 @@ result<focus_stack_report> stack_focus(std::span<const std::string> inputs,
   for (std::size_t i = 0; i < inputs.size(); ++i) {
     frames[i].pixels = scratch.path / (std::to_string(i) + ".rgb");
     frames[i].scores = scratch.path / (std::to_string(i) + ".score");
+    frames[i].hdr = matrix;
   }
   image<gray> reference_proxy;
   profile.preflight_seconds = elapsed(run_start);
@@ -1322,6 +1733,8 @@ result<focus_stack_report> stack_focus(std::span<const std::string> inputs,
     const auto decode_start = monotonic_clock::now();
     ++profile.decoded_frames;
     auto decode_frame = [&]() -> result<working_image> {
+      if (matrix)
+        return read_working_tiff(inputs[i]);
       if (report.raw_context) {
         auto developed = decode_raw_frame(inputs[i], *report.raw_context, i);
         if (!developed)
@@ -1357,6 +1770,32 @@ result<focus_stack_report> stack_focus(std::span<const std::string> inputs,
             std::max({std::abs(p.r), std::abs(p.g), std::abs(p.b)}) > (raw ? 1e6 : 16))
           return fail(error_code::invalid_argument, "focus input",
                       "non-finite or excessive rendered RGB range", inputs[i]);
+    if (matrix) {
+      const std::array<std::string, 4> paths{matrix_inputs[i].confidence,
+                                             matrix_inputs[i].motion, matrix_inputs[i].clipping,
+                                             matrix_inputs[i].low_snr};
+      for (std::size_t kind = 0; kind < paths.size(); ++kind) {
+        auto field = read_scalar_tiff(paths[kind]);
+        if (!field)
+          return std::unexpected(field.error());
+        if (field->pixels.size().width != size.width ||
+            field->pixels.size().height != size.height ||
+            field->meaning != std::string(hdr_meanings[kind]) + report.encoding.normalization)
+          return fail(error_code::color, "focus HDR plane",
+                      "scalar geometry/provenance mismatch", paths[kind]);
+        for (std::size_t y = 0; y < size.height; ++y)
+          for (auto p : field->pixels.view().row(y))
+            if (p.value < 0 || p.value > 1)
+              return fail(error_code::decode, "focus HDR plane",
+                          "invalid reliability/motion scalar", paths[kind]);
+        const auto path = frames[i].pixels.string() + hdr_suffixes[kind];
+        if (auto written = save<gray>(path, field->pixels.view(), profile); !written)
+          return std::unexpected(written.error());
+        auto small = scalar_proxy(field->pixels.view(), step, kind == 0);
+        if (auto written = save<gray>(path + ".proxy", small.view(), profile); !written)
+          return std::unexpected(written.error());
+      }
+    }
     const auto fine_size = extent{(size.width + refinement_step - 1) / refinement_step,
                                   (size.height + refinement_step - 1) / refinement_step};
     image<gray> fine(fine_size);
@@ -1368,10 +1807,12 @@ result<focus_stack_report> stack_focus(std::span<const std::string> inputs,
              sy < std::min((y + 1) * refinement_step, size.height); ++sy)
           for (std::size_t sx = x * refinement_step;
                sx < std::min((x + 1) * refinement_step, size.width); ++sx) {
-            sum += luminance(decoded->pixels.view().at(sx, sy), report.encoding);
+            sum += matrix ? std::max(0.f, luminance(decoded->pixels.view().at(sx, sy),
+                                                    report.encoding))
+                          : luminance(decoded->pixels.view().at(sx, sy), report.encoding);
             ++count;
           }
-        fine.view().at(x, y).value = sum / count;
+        fine.view().at(x, y).value = matrix ? std::log1p(16. * sum / count) : sum / count;
       }
     if (auto saved = save<gray>(frames[i].pixels.string() + ".fine", fine.view(), profile);
         !saved)
@@ -1381,7 +1822,11 @@ result<focus_stack_report> stack_focus(std::span<const std::string> inputs,
     image<gray> small(colors.size());
     for (std::size_t y = 0; y < small.size().height; ++y)
       for (std::size_t x = 0; x < small.size().width; ++x)
-        small.view().at(x, y).value = luminance(colors.view().at(x, y), report.encoding);
+        small.view().at(x, y).value =
+            matrix
+                ? std::log1p(16. *
+                             std::max(0.f, luminance(colors.view().at(x, y), report.encoding)))
+                : luminance(colors.view().at(x, y), report.encoding);
     if (auto saved =
             save<rgb_f32>(frames[i].pixels.string() + ".color", colors.view(), profile);
         !saved)
@@ -1502,6 +1947,11 @@ result<focus_stack_report> stack_focus(std::span<const std::string> inputs,
   }
   if (ec)
     return fail(error_code::io, "focus scratch profile", ec.message(), scratch.path.string());
+  profile.scratch_peak_file_bytes =
+      std::max(profile.hdr_scratch_peak_file_bytes,
+               profile.scratch_peak_file_bytes + report.matrix_intermediate_bytes);
+  report.working_minimum = std::numeric_limits<float>::infinity();
+  report.working_maximum = -report.working_minimum;
   const auto read_row = [&](std::size_t y, std::span<rgb_f32> row) -> result<void> {
     scoped_time measured(profile.scratch_read_seconds);
     profile.scratch_read_bytes += row.size_bytes();
@@ -1510,6 +1960,10 @@ result<focus_stack_report> stack_focus(std::span<const std::string> inputs,
     if (!fused)
       return fail(error_code::io, "focus output", "cannot read fused spool",
                   fused_path.string());
+    for (auto p : row) {
+      report.working_minimum = std::min({report.working_minimum, p.r, p.g, p.b});
+      report.working_maximum = std::max({report.working_maximum, p.r, p.g, p.b});
+    }
     return {};
   };
   const auto output_start = monotonic_clock::now();
@@ -1533,10 +1987,10 @@ result<focus_stack_report> stack_focus(std::span<const std::string> inputs,
   profile.output_bytes = fs::file_size(output, ec);
   if (ec)
     return fail(error_code::io, "focus output profile", ec.message(), output);
-  profile.total_seconds = elapsed(run_start);
+  profile.total_seconds = prior_seconds + elapsed(run_start);
   if (!options.diagnostics_directory.empty()) {
     auto diagnostic = diagnostics(options.diagnostics_directory, *maps, report,
-                                  frames[reference].pixels, fused_path);
+                                  frames[reference].pixels, fused_path, matrix_inputs);
     if (!diagnostic) {
       auto failure = diagnostic.error();
       failure.message =
@@ -1546,4 +2000,23 @@ result<focus_stack_report> stack_focus(std::span<const std::string> inputs,
   }
   return report;
 }
+} // namespace
+
+result<focus_stack_report> stack_focus(std::span<const std::string> inputs,
+                                       const std::string &output,
+                                       const focus_stack_options &options) {
+  return stack_focus_impl(inputs, output, options);
+}
+
+namespace detail {
+result<focus_stack_report> stack_hdr_planes(std::span<const hdr_plane_input> planes,
+                                            const std::string &output,
+                                            const focus_stack_options &options,
+                                            focus_stack_report seed) {
+  std::vector<std::string> inputs;
+  for (const auto &plane : planes)
+    inputs.push_back(plane.image);
+  return stack_focus_impl(inputs, output, options, planes, std::move(seed));
+}
+} // namespace detail
 } // namespace photo_ops

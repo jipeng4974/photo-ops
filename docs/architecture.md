@@ -9,6 +9,7 @@ graph TD
     CLI --> FOCUS[photo_ops.focus_stack]
     CLI --> HDR[photo_ops.hdr]
     HDR --> REG[photo_ops.detail.registration]
+    FOCUS --> HDR
     FOCUS --> REG
     HDR --> RAW
     HDR --> IO
@@ -160,3 +161,7 @@ argmax 当作最终结果。风景 CR3 的 motion、曝光/WB 一致性与 focus
 需要真实拍摄的回归场景，宏观样片只能覆盖其中一部分。
 
 HDR 的 radiometric／deghost／预算与数值 scalar TIFF 约定见 [HDR](hdr.md)。
+
+v1.8 grouped `stack_focus` 复用 `merge_hdr(context, indices, ...)`。JsonCpp 仅存在于
+CLI manifest 薄 adapter，library 原生 descriptor 不暴露第三方 JSON 类型；见
+[矩阵契约](focus-exposure.md)。

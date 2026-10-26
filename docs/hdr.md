@@ -120,7 +120,7 @@ atomic no-replace 发布后，才输出 diagnostics；`report.json` 最后发布
   最大 quality；deghost 为所选 source 的 quality；全无可靠测量时为 0。
 - `deghost.tif`：full-resolution coherent fallback 区域，0／1。
 - `clipping.tif`：该处没有可恢复未饱和 measurement，或 deghost 所选 source clipped。
-- `low-snr.tif`：没有足够高于 signal floor 的可靠 measurement，或所选 deghost
+- `low-snr.tif`：所有覆盖测量的 minimum signal 都低于 floor，或所选 deghost
   source 的 minimum signal 低于 16 counts。不是经过标定的 SNR 数字。
 - `deghost-source.tif`：proxy-resolution source **index**；仅在 deghost 区域有选择意义，
   未覆盖边缘仍可回退 reference。它不是普通融合的逐像素唯一来源。
@@ -163,3 +163,7 @@ RAW AEB baseline，没有复现这些论文的完整系统或引入其显示映�
 验证配置：release / EXR 关闭的完整 C++ 回归通过；clean debug + EXR + ASan/UBSan
 构建后，HDR、RAW、focus 三组回归与全部 24 项 Python 检查通过（1 项可选 sunlight
 实拍检查跳过），无 sanitizer 错误。原有 defocus 全套本轮在 release 中验证。
+
+v1.8 分开明亮 clipping 与低信号：全部饱和不自动等于 low-SNR。增加 bright-clipped／
+dark-below-black 回归；该诊断修复不改变 HDR RGB／weight。HDR 现由 matrix 在同一
+context 下复用，见 [focus × exposure](focus-exposure.md)。

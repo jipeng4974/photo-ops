@@ -450,9 +450,10 @@ result<image<fused_measurement>> fuse_tile(const std::vector<frame> &frames, ext
         const double w = static_cast<float>(q / std::max(variance(p.sensor, frames[i]), 1e-24));
         weight_row[x].value = w;
         quality_row[x].value = std::max<double>(quality_row[x].value, q);
-        if (p.sensor.maximum < .995)
-          shadow_row[x].value =
-              std::max<double>(shadow_row[x].value, p.sensor.minimum * frames[i].levels);
+        // Saturation and a low sensor floor are separate diagnostics. A bright clipped
+        // measurement must not by itself be reported as a dark/noisy measurement.
+        shadow_row[x].value =
+            std::max<double>(shadow_row[x].value, p.sensor.minimum * frames[i].levels);
         auto &a = accumulator[x];
         a[0] += w * p.rgb.r;
         a[1] += w * p.rgb.g;

@@ -186,6 +186,113 @@ class CommandLine(unittest.TestCase):
             finally:
                 diagnostics.chmod(0o755)
 
+    def test_matrix_manifest_and_shared_hdr_context(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            planes = []
+            for f in range(2):
+                files = []
+                for e, shutter in enumerate([(1,400), (1,100), (1,25)]):
+                    name = f"f{f}e{e}.dng"
+                    write_dng_fixture(root/name, shutter)
+                    files.append(name)
+                planes.append(dict(name=["near", "far"][f], exposures=files))
+            manifest = root/"capture.json"
+            manifest.write_text(json.dumps(dict(version=1, focus_planes=planes)))
+            result = self.run_cli("focus-stack", "--matrix", manifest, "-o", root/"matrix.tif",
+                                  "--aligned", "--memory-budget-mib", "512", "--tile-size", "32",
+                                  "--scratch-directory", root, "--diagnostics", root/"diagnostics")
+            self.assertEqual(result.returncode, 0, result.stderr)
+            report = json.loads((root/"diagnostics/report.json").read_text())
+            self.assertEqual(report["algorithm"], "focus-hdr-matrix-v1")
+            self.assertEqual(report["input_origin"], "scene_linear_hdr_planes")
+            self.assertEqual(report["raw_context"]["exposure_policy"], "shutter_bracket")
+            self.assertEqual(len(report["frames"]), 2)
+            self.assertGreater(report["working_maximum"], 1)
+            self.assertGreater(report["profile"]["hdr_seconds"], 0)
+            self.assertGreater(report["profile"]["scalar_warp_calls"], 0)
+            fingerprint = report["raw_context"]["fingerprint"]
+            indices = []
+            for f, group in enumerate(report["hdr_planes"]):
+                self.assertEqual(group["raw_context"], fingerprint)
+                indices.extend(row["context_index"] for row in group["exposures"])
+                subreport = json.loads((root/"diagnostics"/group["report"]).read_text())
+                self.assertEqual(subreport["raw_context"]["fingerprint"], fingerprint)
+                self.assertEqual(subreport["raw_context"]["reference_index"], 4)
+                for name in ["confidence.tif", "deghost.tif", "clipping.tif", "low-snr.tif", "deghost-source.tif"]:
+                    self.assertTrue((root/"diagnostics"/f"hdr-plane-{f}"/name).is_file())
+                self.assertNotIn("raw_saturated_fraction", report["frames"][f])
+                self.assertEqual(report["frames"][f]["focus_plane"], group["name"])
+            self.assertEqual(indices, list(range(6)))
+            for name in ["hdr-confidence.tif", "hdr-clipping.tif", "hdr-low-snr.tif", "hdr-deghost.tif", "combined-confidence.tif"]:
+                inspected = self.run_cli("inspect", root/"diagnostics"/name)
+                self.assertEqual(inspected.returncode, 0, inspected.stderr)
+                self.assertIn("measurement:", inspected.stdout)
+            self.assertFalse(list(root.glob("photo-ops-matrix-*")))
+            self.assertFalse(list(root.glob("photo-ops-focus-*")))
+            self.assertEqual(self.run_cli("inspect", root/"matrix.tif").returncode, 0)
+            collision = self.run_cli("focus-stack", "--matrix", manifest, "-o", root/"collision.tif",
+                                     "--aligned", "--diagnostics", root/"diagnostics")
+            self.assertEqual(collision.returncode, 1)
+            self.assertFalse((root/"collision.tif").exists())
+
+    def test_matrix_parser_rejects_ambiguous_or_malformed_input(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            manifest = root/"capture.json"
+            valid = dict(focus_planes=[dict(name="near", exposures=["a.dng", "b.dng"]),
+                                       dict(name="far", exposures=["c.dng", "d.dng"])])
+            malformed = ["[]", "{}", '{"focus_planes":[],"focus_planes":[]}',
+                         json.dumps({**valid, "version": True}), json.dumps({**valid, "version": 1.0}),
+                         json.dumps({**valid, "version": 18446744073709551615}),
+                         json.dumps({**valid, "unknown": 1}), json.dumps(valid)+" trailing",
+                         '{"focus_planes": [NaN]}', json.dumps(dict(focus_planes=[None, None])),
+                         json.dumps(dict(focus_planes=[dict(name="near", exposures=["a.dng", 1]), valid["focus_planes"][1]])),
+                         json.dumps(dict(focus_planes=[dict(name="near", exposures=["a" + chr(0) + ".dng", "b.dng"]), valid["focus_planes"][1]])),
+                         '{"focus_planes":'+ '['*70 + '0' + ']'*70 + '}']
+            for index, text in enumerate(malformed):
+                with self.subTest(case=index):
+                    manifest.write_text(text)
+                    result = self.run_cli("focus-stack", "--matrix", manifest, "-o", root/"failed.tif", "--aligned")
+                    self.assertEqual(result.returncode, 1)
+                    self.assertIn("matrix manifest:", result.stderr)
+                    self.assertNotIn("unexpected failure", result.stderr)
+                    self.assertFalse((root/"failed.tif").exists())
+            manifest.write_text(json.dumps(valid))
+            for args in [("focus-stack", "--matrix"), ("hdr", "--matrix", manifest, "-o", root/"failed.tif"),
+                         ("focus-stack", "--matrix", manifest, "a.dng", "-o", root/"failed.tif"),
+                         ("focus-stack", "--matrix", manifest, "--half-size", "-o", root/"failed.tif")]:
+                result = self.run_cli(*args)
+                self.assertEqual(result.returncode, 1)
+                self.assertNotIn("unexpected failure", result.stderr)
+
+    @unittest.skipIf(os.geteuid() == 0, "root bypasses directory write permissions")
+    def test_matrix_diagnostic_failure_preserves_complete_output(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            planes = []
+            for f in range(2):
+                files = []
+                for e, shutter in enumerate([(1,400), (1,100), (1,25)]):
+                    path = root/f"{f}-{e}.dng"
+                    write_dng_fixture(path, shutter)
+                    files.append(path.name)
+                planes.append(dict(name=str(f), exposures=files))
+            manifest = root/"capture.json"
+            manifest.write_text(json.dumps(dict(focus_planes=planes)))
+            diagnostics = root/"readonly"
+            diagnostics.mkdir(mode=0o555)
+            try:
+                result = self.run_cli("focus-stack", "--matrix", manifest, "-o", root/"matrix.tif",
+                                      "--aligned", "--diagnostics", diagnostics)
+                self.assertEqual(result.returncode, 1)
+                self.assertIn("complete image published at", result.stderr)
+                self.assertEqual(self.run_cli("inspect", root/"matrix.tif").returncode, 0)
+                self.assertFalse((diagnostics/"report.json").exists())
+                self.assertFalse(list(root.glob("photo-ops-matrix-*")))
+            finally:
+                diagnostics.chmod(0o755)
+
     def test_focus_stack_rejects_missing_raw_and_invalid_options(self):
         cases = [
             (("focus-stack", "a.CR3", "b.CR3", "-o", "unused.tif"), "open RAW sequence"),

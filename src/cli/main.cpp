@@ -5,8 +5,11 @@
 #include <cmath>
 #include <expected>
 #include <filesystem>
+#include <fstream>
 #include <iostream>
+#include <json/json.h>
 #include <limits>
+#include <memory>
 #include <span>
 #include <string>
 #include <string_view>
@@ -24,6 +27,7 @@ namespace photo = photo_ops;
 struct arguments {
   std::string command;
   std::string input;
+  std::string matrix_manifest;
   std::string output;
   bool half_size = false;
   std::string diagnostics;
@@ -54,15 +58,27 @@ photo::result<arguments> parse_arguments(std::span<char *> tokens) {
 
   arguments parsed{};
   parsed.command = tokens[0];
-  parsed.input = tokens[1];
-  parsed.inputs.push_back(parsed.input);
+  std::size_t first_option = 2;
+  if (std::string_view(tokens[1]) == "--matrix") {
+    if (parsed.command != "focus-stack")
+      return photo::fail(photo::error_code::invalid_argument, "parse arguments",
+                         "--matrix requires focus-stack");
+    if (tokens.size() < 3 || std::string_view(tokens[2]).starts_with('-'))
+      return photo::fail(photo::error_code::invalid_argument, "parse arguments",
+                         "--matrix requires a JSON manifest path");
+    parsed.matrix_manifest = tokens[2];
+    first_option = 3;
+  } else {
+    parsed.input = tokens[1];
+    parsed.inputs.push_back(parsed.input);
+  }
   if (parsed.command != "inspect" && parsed.command != "convert" &&
       parsed.command != "sunlight-enhance" && parsed.command != "focus-stack" &&
       parsed.command != "hdr")
     return photo::fail(photo::error_code::invalid_argument, "parse arguments",
                        "unknown command: " + parsed.command);
 
-  for (std::size_t index = 2; index < tokens.size(); ++index) {
+  for (std::size_t index = first_option; index < tokens.size(); ++index) {
     const std::string_view option = tokens[index];
     if (option == "--half-size") {
       parsed.half_size = true;
@@ -106,6 +122,9 @@ photo::result<arguments> parse_arguments(std::span<char *> tokens) {
       parsed.focus_options_specified = true;
     } else if ((parsed.command == "focus-stack" || parsed.command == "hdr") &&
                !option.starts_with('-')) {
+      if (!parsed.matrix_manifest.empty())
+        return photo::fail(photo::error_code::invalid_argument, "parse arguments",
+                           "matrix manifest cannot be mixed with positional frames");
       parsed.inputs.emplace_back(option);
     } else {
       return photo::fail(photo::error_code::invalid_argument, "parse arguments",
@@ -132,9 +151,13 @@ photo::result<arguments> parse_arguments(std::span<char *> tokens) {
     return photo::fail(photo::error_code::invalid_argument, "parse arguments",
                        "bracket options require focus-stack or hdr");
   if ((parsed.command == "focus-stack" || parsed.command == "hdr") &&
-      (parsed.inputs.size() < 2 || parsed.half_size))
+      parsed.matrix_manifest.empty() && (parsed.inputs.size() < 2 || parsed.half_size))
     return photo::fail(photo::error_code::invalid_argument, "parse arguments",
                        "bracket requires at least two frames; --half-size is single-RAW-only");
+
+  if (!parsed.matrix_manifest.empty() && parsed.half_size)
+    return photo::fail(photo::error_code::invalid_argument, "parse arguments",
+                       "matrix output retains full resolution; --half-size is single-RAW-only");
 
   if (!parsed.output.empty()) {
     auto encoding = output_encoding(parsed.output);
@@ -149,6 +172,81 @@ photo::result<arguments> parse_arguments(std::span<char *> tokens) {
                          status ? status.message() : "output already exists", parsed.output);
   }
   return parsed;
+}
+
+photo::result<photo::focus_exposure_matrix> read_matrix_manifest(const std::string &path) {
+  const auto error = [&](const std::string &message) {
+    return photo::fail(photo::error_code::invalid_argument, "matrix manifest", message, path);
+  };
+  std::error_code ec;
+  const auto bytes = std::filesystem::file_size(path, ec);
+  if (ec || !bytes || bytes > 1024 * 1024)
+    return error("requires a nonempty JSON file <=1 MiB");
+  std::ifstream stream(path, std::ios::binary);
+  std::string text(bytes, '\0');
+  if (!stream.read(text.data(), text.size()) || stream.peek() != std::char_traits<char>::eof())
+    return error("cannot read stable complete manifest");
+  Json::CharReaderBuilder builder;
+  builder["allowComments"] = false;
+  builder["collectComments"] = false;
+  builder["allowTrailingCommas"] = false;
+  builder["strictRoot"] = true;
+  builder["failIfExtra"] = true;
+  builder["rejectDupKeys"] = true;
+  builder["allowDroppedNullPlaceholders"] = false;
+  builder["allowNumericKeys"] = false;
+  builder["allowSpecialFloats"] = false;
+  builder["stackLimit"] = 64;
+  Json::Value root;
+  std::string errors;
+  std::unique_ptr<Json::CharReader> reader(builder.newCharReader());
+  try {
+    if (!reader->parse(text.data(), text.data() + text.size(), &root, &errors))
+      return error(errors);
+  } catch (const Json::Exception &failure) {
+    return error(failure.what());
+  }
+  if (!root.isObject() || !root.isMember("focus_planes") || !root["focus_planes"].isArray())
+    return error("root must contain focus_planes array");
+  for (const auto &key : root.getMemberNames())
+    if (key != "focus_planes" && key != "version")
+      return error("unknown root field: " + key);
+  if (root.isMember("version") &&
+      ((root["version"].type() != Json::intValue &&
+        root["version"].type() != Json::uintValue) ||
+       (!root["version"].isUInt64() || root["version"].asUInt64() != 1)))
+    return error("unsupported matrix schema version");
+  if (root["focus_planes"].size() < 2 || root["focus_planes"].size() > 32)
+    return error("requires 2..32 explicit focus planes");
+  photo::focus_exposure_matrix matrix;
+  const auto directory =
+      std::filesystem::canonical(std::filesystem::path(path), ec).parent_path();
+  if (ec)
+    return error("cannot resolve manifest directory");
+  for (const auto &plane : root["focus_planes"]) {
+    if (!plane.isObject() || !plane.isMember("name") || !plane["name"].isString() ||
+        !plane.isMember("exposures") || !plane["exposures"].isArray())
+      return error("each plane needs name and exposures");
+    for (const auto &key : plane.getMemberNames())
+      if (key != "name" && key != "exposures")
+        return error("unknown plane field: " + key);
+    photo::focus_exposure_plane group{plane["name"].asString(), {}};
+    if (plane["exposures"].size() < 2 || plane["exposures"].size() > 16)
+      return error("each plane needs 2..16 exposure paths");
+    for (const auto &input : plane["exposures"]) {
+      if (!input.isString() || input.asString().empty() || input.asString().size() > 4096)
+        return error("exposure entries must be nonempty paths");
+      const auto value = input.asString();
+      if (std::ranges::any_of(value, [](unsigned char c) { return c < 32 || c == 127; }))
+        return error("exposure paths cannot contain control characters");
+      std::filesystem::path source(value);
+      if (source.is_relative())
+        source = directory / source;
+      group.exposures.push_back(source.lexically_normal().string());
+    }
+    matrix.focus_planes.push_back(std::move(group));
+  }
+  return matrix;
 }
 
 void print_statistics(const photo::decoded_image &decoded) {
@@ -185,7 +283,15 @@ photo::result<void> run(const arguments &options) {
     return {};
   }
   if (options.command == "focus-stack") {
-    auto stacked = photo::stack_focus(options.inputs, options.output, options.focus);
+    photo::result<photo::focus_stack_report> stacked;
+    if (options.matrix_manifest.empty())
+      stacked = photo::stack_focus(options.inputs, options.output, options.focus);
+    else {
+      auto matrix = read_matrix_manifest(options.matrix_manifest);
+      if (!matrix)
+        return std::unexpected(matrix.error());
+      stacked = photo::stack_focus(*matrix, options.output, options.focus);
+    }
     if (!stacked)
       return std::unexpected(stacked.error());
     std::cout << "written: " << options.output
@@ -203,6 +309,11 @@ photo::result<void> run(const arguments &options) {
               << '\n';
     if (stacked->raw_context)
       std::cout << "raw_context: " << stacked->raw_context->fingerprint() << '\n';
+    if (!stacked->hdr_planes.empty())
+      std::cout << "hdr_focus_planes: " << stacked->hdr_planes.size()
+                << "\nhdr_seconds: " << stacked->profile.hdr_seconds
+                << "\nworking_range: " << stacked->working_minimum << " .. "
+                << stacked->working_maximum << '\n';
     return {};
   }
   auto decoded = photo::read_image(options.input, options.half_size);
@@ -283,6 +394,8 @@ void print_help() {
          "                      [--aligned] [--reference INDEX] [--diagnostics DIRECTORY]\n"
          "                      [--memory-budget-mib 2048] [--scratch-directory DIRECTORY]\n"
          "                      [--tile-size 256] [--proxy-long-edge 1024]\n"
+         "photo-ops focus-stack --matrix capture.json -o stacked-hdr.tif\n"
+         "                      [same focus-stack options; --reference selects a focus plane]\n"
          "photo-ops hdr EXPOSURE1 EXPOSURE2 ... -o radiance.tif\n"
          "              [--aligned] [--reference INDEX] [--diagnostics DIRECTORY]\n"
          "              [--memory-budget-mib 2048] [--scratch-directory DIRECTORY]\n"

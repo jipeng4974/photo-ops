@@ -17,6 +17,7 @@ import photo_ops.color;
 import photo_ops.raw;
 import photo_ops.io;
 import photo_ops.hdr;
+import photo_ops.focus_stack;
 
 namespace {
 namespace p = photo_ops;
@@ -59,7 +60,8 @@ using scene_function = std::function<double(double, double)>;
 // Additive count noise precedes quantization; shutter and saturation are physical inputs.
 void write_capture(const std::string &path, p::extent size, double shutter,
                    const scene_function &scene, int seed = 0, bool noise = false,
-                   std::array<double, 3> camera_color = {1, 1, 1}) {
+                   std::array<double, 3> camera_color = {1, 1, 1},
+                   std::array<float, 3> camera_neutral = {1, 1, 1}) {
   TIFF *file = TIFFOpen(path.c_str(), "w");
   check(file, "create HDR DNG");
   TIFFCreateEXIFDirectory(file);
@@ -95,9 +97,9 @@ void write_capture(const std::string &path, p::extent size, double shutter,
   unsigned white = 16383;
   TIFFSetField(file, TIFFTAG_BLACKLEVEL, 1, &black);
   TIFFSetField(file, TIFFTAG_WHITELEVEL, 1, &white);
-  float matrix[]{1, 0, 0, 0, 1, 0, 0, 0, 1}, neutral[]{1, 1, 1};
+  float matrix[]{1, 0, 0, 0, 1, 0, 0, 0, 1};
   TIFFSetField(file, TIFFTAG_COLORMATRIX1, 9, matrix);
-  TIFFSetField(file, TIFFTAG_ASSHOTNEUTRAL, 3, neutral);
+  TIFFSetField(file, TIFFTAG_ASSHOTNEUTRAL, 3, camera_neutral.data());
   TIFFSetField(file, TIFFTAG_CALIBRATIONILLUMINANT1, 21);
   std::vector<std::uint16_t> row(size.width);
   for (std::size_t y = 0; y < size.height; ++y) {
@@ -238,6 +240,11 @@ void radiometric_fusion() {
   check(clipped.pixels.view().at(170, 80).value == 0 &&
             clipped.pixels.view().at(230, 80).value == 1,
         "clipping map must describe unmeasured radiance");
+  auto low_snr = take(p::read_scalar_tiff((temp.path / "diagnostics/low-snr.tif").string()));
+  check(low_snr.pixels.view().at(230, 80).value == 0 &&
+            low_snr.pixels.view().at(8, 80).value == 1,
+        "clipping and low-signal diagnostics must remain distinct");
+
   double contribution = 0;
   for (const auto &f : report.frames)
     contribution += f.contribution_fraction;
@@ -440,6 +447,341 @@ void exposure_robust_registration() {
             "fractional similarity warp must remain tile-independent");
     }
 }
+
+p::focus_exposure_matrix
+matrix_captures(workspace &temp, p::extent size,
+                const std::function<double(std::size_t, std::size_t, double, double)> &scene,
+                bool perturbed_wb = false) {
+  p::focus_exposure_matrix matrix;
+  for (std::size_t f = 0; f < 2; ++f) {
+    p::focus_exposure_plane plane{f == 0 ? "near" : "far", {}};
+    for (std::size_t e = 0; e < 3; ++e) {
+      const auto path =
+          (temp.path / ("f" + std::to_string(f) + "e" + std::to_string(e) + ".dng")).string();
+      write_capture(
+          path, size, std::array{.0025, .01, .04}[e],
+          [&, f, e](double x, double y) { return scene(f, e, x, y); }, 0, false, {1, 1, 1},
+          perturbed_wb && f == 0 ? std::array<float, 3>{.5, 1, .25}
+                                 : std::array<float, 3>{1, 1, 1});
+      plane.exposures.push_back(path);
+    }
+    matrix.focus_planes.push_back(std::move(plane));
+  }
+  return matrix;
+}
+
+p::hdr_options plane_options(const workspace &temp) {
+  p::hdr_options options;
+  options.already_aligned = true;
+  options.memory_budget_mib = 512;
+  options.scratch_directory = temp.path.string();
+  return options;
+}
+
+void matrix_radiance_and_focus() {
+  workspace temp;
+  const p::extent size{256, 192};
+  const auto captures = matrix_captures(
+      temp, size,
+      [](std::size_t f, std::size_t, double x, double y) {
+        const double base = y < 64 ? .003 : y < 128 ? .15 : 1.6;
+        const bool sharp = (x < 128) == (f == 0);
+        return base *
+               (1 + .22 * (sharp ? 1 : .08) * std::sin(.91 * x + .1) * std::cos(.83 * y + .2));
+      },
+      true);
+  p::focus_stack_options options;
+  options.already_aligned = true;
+  options.memory_budget_mib = 512;
+  options.tile_size = 32;
+  options.scratch_directory = temp.path.string();
+  options.diagnostics_directory = (temp.path / "diagnostics").string();
+  const auto output = (temp.path / "matrix.tif").string();
+  const auto report = take(p::stack_focus(captures, output, options));
+  check(report.hdr_planes.size() == 2 && report.raw_context->frames().size() == 6 &&
+            report.raw_context->reference_index() == 4,
+        "matrix must freeze all originals with middle exposure of focus reference");
+  for (const auto &plane : report.hdr_planes)
+    check(plane.hdr.raw_context->fingerprint() == report.raw_context->fingerprint(),
+          "every HDR plane must retain one global color/exposure context");
+  auto result = take(p::read_working_tiff(output));
+  auto hdr_options = plane_options(temp);
+  const auto near_path = (temp.path / "near-hdr.tif").string(),
+             far_path = (temp.path / "far-hdr.tif").string();
+  take(p::merge_hdr(*report.raw_context, std::array<std::size_t, 3>{0, 1, 2}, near_path,
+                    hdr_options));
+  take(p::merge_hdr(*report.raw_context, std::array<std::size_t, 3>{3, 4, 5}, far_path,
+                    hdr_options));
+  auto near = take(p::read_working_tiff(near_path)), far = take(p::read_working_tiff(far_path));
+  double error = 0, reference_error = 0;
+  std::size_t count = 0;
+  for (std::size_t y = 16; y < size.height - 16; ++y)
+    for (std::size_t x = 16; x < size.width - 16; ++x) {
+      if (std::abs(long(x) - 128) < 24 || std::abs(long(y) - 64) < 12 ||
+          std::abs(long(y) - 128) < 12)
+        continue;
+      const auto ideal = (x < 128 ? near : far).pixels.view().at(x, y).g;
+      const double scale = y < 64 ? .003 : y < 128 ? .15 : 1.6;
+      error += std::abs(result.pixels.view().at(x, y).g - ideal) / scale;
+      reference_error += std::abs(far.pixels.view().at(x, y).g - ideal) / scale;
+      ++count;
+    }
+  std::cout << "matrix: relative focus_mae=" << error / count
+            << ", single_plane=" << reference_error / count << std::endl;
+  check(error / count < .035 && error < reference_error * .55,
+        "HDR-first matrix must recover near/far detail across shadows and highlights");
+  check(report.working_maximum > 1 && report.working_minimum >= -.01,
+        "matrix must preserve HDR headroom");
+  check(report.profile.hdr_seconds > 0 && report.profile.scalar_warp_calls > 0 &&
+            report.profile.scratch_peak_file_bytes >= report.matrix_intermediate_bytes,
+        "matrix profile must account for HDR stages, scalar warps and retained intermediates");
+  check(result.encoding.normalization == report.raw_context->fingerprint(),
+        "matrix final working TIFF must retain global context");
+  for (const auto *name : {"hdr-confidence.tif", "hdr-clipping.tif", "hdr-low-snr.tif",
+                           "hdr-deghost.tif", "combined-confidence.tif"})
+    check(fs::exists(temp.path / "diagnostics" / name),
+          "matrix combined diagnostics must be published");
+  check(fs::exists(temp.path / "diagnostics/hdr-plane-0/report.json") &&
+            fs::exists(temp.path / "diagnostics/hdr-plane-1/report.json"),
+        "per-plane HDR evidence must accompany the final matrix report");
+  options.diagnostics_directory.clear();
+  options.tile_size = 4096;
+  const auto whole_path = (temp.path / "whole-matrix.tif").string();
+  take(p::stack_focus(captures, whole_path, options));
+  auto whole = take(p::read_working_tiff(whole_path));
+  for (std::size_t y = 0; y < size.height; ++y)
+    for (std::size_t x = 0; x < size.width; ++x) {
+      const auto a = result.pixels.view().at(x, y), b = whole.pixels.view().at(x, y);
+      check(std::abs(a.r - b.r) < .0003 && std::abs(a.g - b.g) < .0003 &&
+                std::abs(a.b - b.b) < .0003,
+            "matrix tile and whole-domain fusion must agree across boundaries");
+    }
+  auto permuted = captures;
+  std::rotate(permuted.focus_planes[0].exposures.begin(),
+              permuted.focus_planes[0].exposures.begin() + 1,
+              permuted.focus_planes[0].exposures.end());
+  std::swap(permuted.focus_planes[1].exposures[1], permuted.focus_planes[1].exposures[2]);
+  const auto permuted_path = (temp.path / "permuted-exposures.tif").string();
+  const auto permuted_report = take(p::stack_focus(permuted, permuted_path, options));
+  check(permuted_report.raw_context->reference_index() == 5,
+        "matrix must locate median shutter from metadata, not column position");
+  auto shuffled = take(p::read_working_tiff(permuted_path));
+  auto reversed = captures;
+  std::reverse(reversed.focus_planes.begin(), reversed.focus_planes.end());
+  options.reference_index = 0;
+  const auto reversed_path = (temp.path / "reversed-focus.tif").string();
+  take(p::stack_focus(reversed, reversed_path, options));
+  auto reversed_image = take(p::read_working_tiff(reversed_path));
+  for (std::size_t y = 0; y < size.height; ++y)
+    for (std::size_t x = 0; x < size.width; ++x) {
+      const auto expected = result.pixels.view().at(x, y);
+      for (const auto actual :
+           {shuffled.pixels.view().at(x, y), reversed_image.pixels.view().at(x, y)})
+        check(
+            std::abs(actual.r - expected.r) < .0005 &&
+                std::abs(actual.g - expected.g) < .0005 &&
+                std::abs(actual.b - expected.b) < .0005,
+            "explicit exposure/focus permutations must preserve common radiance and geometry");
+    }
+  options.reference_index = static_cast<std::size_t>(-1);
+  auto malformed = captures;
+  malformed.focus_planes[1].name = "near";
+  check(!p::stack_focus(malformed, (temp.path / "bad-name.tif").string(), options),
+        "duplicate focus names must reject");
+  malformed = captures;
+  malformed.focus_planes[1].exposures.pop_back();
+  check(!p::stack_focus(malformed, (temp.path / "ragged.tif").string(), options),
+        "ragged exposure grid must reject");
+  malformed = captures;
+  malformed.focus_planes[1].exposures[0] = malformed.focus_planes[0].exposures[0];
+  check(!p::stack_focus(malformed, (temp.path / "reused.tif").string(), options),
+        "reused capture must reject");
+  const auto mismatched = (temp.path / "different-grid.dng").string();
+  write_capture(mismatched, size, .02, [](double, double) { return .2; });
+  malformed = captures;
+  malformed.focus_planes[1].exposures[0] = mismatched;
+  check(!p::stack_focus(malformed, (temp.path / "bad-grid.tif").string(), options),
+        "different shutter grids must reject");
+  check(std::ranges::none_of(fs::directory_iterator(temp.path),
+                             [](const auto &entry) {
+                               return entry.path().filename().string().starts_with(
+                                   "photo-ops-matrix-");
+                             }),
+        "matrix private intermediates must be cleaned on success and failure");
+}
+
+void matrix_validity_and_motion() {
+  for (bool all_invalid : {false, true}) {
+    workspace temp;
+    const p::extent size{128, 96};
+    const auto captures =
+        matrix_captures(temp, size, [all_invalid](std::size_t f, std::size_t, double, double) {
+          return all_invalid || f == 1 ? 6. : .2;
+        });
+    p::focus_stack_options options;
+    options.already_aligned = true;
+    options.memory_budget_mib = 512;
+    options.scratch_directory = temp.path.string();
+    options.diagnostics_directory = (temp.path / "diagnostics").string();
+    const auto output = (temp.path / "validity.tif").string();
+    const auto report = take(p::stack_focus(captures, output, options));
+    auto image = take(p::read_working_tiff(output));
+    const auto source = (temp.path / "source.tif").string();
+    auto hdr_options = plane_options(temp);
+    const auto indices =
+        all_invalid ? std::array<std::size_t, 3>{3, 4, 5} : std::array<std::size_t, 3>{0, 1, 2};
+    take(p::merge_hdr(*report.raw_context, indices, source, hdr_options));
+    auto expected = take(p::read_working_tiff(source));
+    for (std::size_t y = 0; y < size.height; ++y)
+      for (std::size_t x = 0; x < size.width; ++x) {
+        const auto a = image.pixels.view().at(x, y), b = expected.pixels.view().at(x, y);
+        check(std::abs(a.r - b.r) < 2e-5 && std::abs(a.g - b.g) < 2e-5 &&
+                  std::abs(a.b - b.b) < 2e-5,
+              "invalid HDR plane must not contaminate reliable fusion; all-invalid uses "
+              "coherent reference");
+      }
+    auto clipping =
+        take(p::read_scalar_tiff((temp.path / "diagnostics/hdr-clipping.tif").string()));
+    check(clipping.pixels.view().at(64, 48).value == float(all_invalid),
+          "matrix clipping diagnostics must follow the reliable selected plane or explicit "
+          "fallback");
+  }
+  workspace temp;
+  const p::extent size{192, 128};
+  const auto captures =
+      matrix_captures(temp, size, [](std::size_t f, std::size_t e, double x, double y) {
+        const double left = f == 0 ? 48 + 24 * e : 72;
+        return x >= left && x < left + 32 && y >= 40 && y < 88 ? .65 : .15;
+      });
+  p::focus_stack_options options;
+  options.already_aligned = true;
+  options.memory_budget_mib = 512;
+  options.scratch_directory = temp.path.string();
+  options.diagnostics_directory = (temp.path / "diagnostics").string();
+  const auto output = (temp.path / "motion-matrix.tif").string();
+  const auto report = take(p::stack_focus(captures, output, options));
+  check(report.hdr_planes[0].hdr.deghost_fraction > .02 &&
+            report.hdr_planes[1].hdr.deghost_fraction == 0,
+        "motion fixture must isolate one exposure-axis deghost map");
+  check(report.motion_fraction > .02,
+        "HDR motion must propagate even when merged focus-plane colors agree");
+  auto image = take(p::read_working_tiff(output));
+  auto mask = take(p::read_image((temp.path / "diagnostics/motion.tif").string()));
+  const auto reference = (temp.path / "reference-hdr.tif").string();
+  auto hdr_options = plane_options(temp);
+  take(p::merge_hdr(*report.raw_context, std::array<std::size_t, 3>{3, 4, 5}, reference,
+                    hdr_options));
+  auto ref = take(p::read_working_tiff(reference));
+  for (std::size_t y = 0; y < size.height; ++y)
+    for (std::size_t x = 0; x < size.width; ++x)
+      if (mask.pixels.view().at(x, y).r > .5) {
+        const auto a = image.pixels.view().at(x, y), b = ref.pixels.view().at(x, y);
+        check(a.r == b.r && a.g == b.g && a.b == b.b,
+              "HDR deghost evidence cannot be overridden by focus/defocus blending");
+      }
+}
+
+void matrix_geometric_composition() {
+  workspace temp;
+  const p::extent size{384, 320};
+
+  struct spot {
+    double x, y, r, a;
+  };
+
+  std::vector<spot> spots;
+  std::uint32_t seed = 9;
+  const auto random = [&]() {
+    seed = 1664525 * seed + 1013904223;
+    return double(seed) / 4294967296.;
+  };
+  for (int i = 0; i < 180; ++i)
+    spots.push_back({random() * 384, random() * 320, 2 + random() * 5, .015 + random() * .025});
+  const auto scene = [&](double x, double y) {
+    double v = .03;
+    for (auto s : spots) {
+      const auto dx = x - s.x, dy = y - s.y;
+      v += s.a * std::exp(-(dx * dx + dy * dy) / (s.r * s.r));
+    }
+    return v;
+  };
+  constexpr double a = 1.006, b = .002, tx = .45, ty = -.3;
+  const auto captures =
+      matrix_captures(temp, size, [&](std::size_t f, std::size_t e, double x, double y) {
+        if (f == 0) {
+          const std::array<double, 3> aa{.998, 1, 1.002}, bb{-.001, 0, .001}, xx{.35, 0, -.4},
+              yy{-.25, 0, .2};
+          return scene(aa[e] * x - bb[e] * y + xx[e], bb[e] * x + aa[e] * y + yy[e]);
+        }
+        return scene(a * x - b * y + tx, b * x + a * y + ty);
+      });
+  p::focus_stack_options options;
+  options.memory_budget_mib = 512;
+  options.proxy_long_edge = 192;
+  options.tile_size = 128;
+  options.scratch_directory = temp.path.string();
+  const auto report =
+      take(p::stack_focus(captures, (temp.path / "registered-matrix.tif").string(), options));
+  const auto &t = report.frames[0].alignment;
+  check(t.refined, "matrix default geometry must refine across HDR focus planes");
+  const double d = a * a + b * b, ia = a / d, ib = -b / d, itx = -(a * tx + b * ty) / d,
+               ity = (b * tx - a * ty) / d;
+  double maximum = 0;
+  for (double y : {32., 288.})
+    for (double x : {32., 352.})
+      maximum = std::max(maximum, std::hypot((t.a - ia) * x - (t.b - ib) * y + t.tx - itx,
+                                             (t.b - ib) * x + (t.a - ia) * y + t.ty - ity));
+  std::cout << "matrix composed registration: maximum_corner_error=" << maximum << std::endl;
+  check(maximum < .4,
+        "HDR-first matrix must preserve composed subpixel exposure/focus geometry");
+  check(report.hdr_planes[0].hdr.frames[0].alignment.refined &&
+            report.hdr_planes[0].hdr.frames[2].alignment.refined,
+        "matrix default path must execute within-plane AEB registration as well");
+}
+
+void matrix_cache_streaming() {
+  workspace temp;
+  const p::extent size{64, 48};
+  p::focus_exposure_matrix matrix;
+  for (std::size_t f = 0; f < 20; ++f) {
+    p::focus_exposure_plane plane{"plane-" + std::to_string(f), {}};
+    for (std::size_t e = 0; e < 2; ++e) {
+      const auto path =
+          (temp.path / ("p" + std::to_string(f) + "-" + std::to_string(e) + ".dng")).string();
+      write_capture(path, size, std::array{.0025, .01}[e],
+                    [f](double x, double) { return f == 0 && x < 32 ? 6. : .1; });
+      plane.exposures.push_back(path);
+    }
+    matrix.focus_planes.push_back(std::move(plane));
+  }
+  p::focus_stack_options options;
+  options.already_aligned = true;
+  options.memory_budget_mib = 512;
+  options.tile_size = 512;
+  options.scratch_directory = temp.path.string();
+  const auto streaming_path = (temp.path / "streaming.tif").string();
+  const auto streaming = take(p::stack_focus(matrix, streaming_path, options));
+  check(!streaming.tile_sources_cached, "matrix budget must exercise the streaming donor path");
+  options.memory_budget_mib = 1024;
+  const auto cached_path = (temp.path / "cached.tif").string();
+  const auto cached = take(p::stack_focus(matrix, cached_path, options));
+  check(cached.tile_sources_cached && cached.estimated_peak_bytes <= 1024 * 1024 * 1024,
+        "matrix larger budget may cache sources without exceeding planner");
+  check(cached.profile.warp_calls == 20 * cached.profile.tiles &&
+            cached.profile.scalar_warp_calls == 20 * cached.profile.tiles,
+        "cached matrix must reuse the donor-pass source and reliability buffers");
+  auto a = take(p::read_working_tiff(streaming_path)),
+       b = take(p::read_working_tiff(cached_path));
+  for (std::size_t y = 0; y < size.height; ++y)
+    for (std::size_t x = 0; x < size.width; ++x) {
+      const auto p = a.pixels.view().at(x, y), q = b.pixels.view().at(x, y);
+      check(p.r == q.r && p.g == q.g && p.b == q.b,
+            "streaming and cached HDR reliability/donor paths must preserve identical samples");
+      check(std::abs(p.g - .1) < .0001,
+            "invalid partial clipping cannot leak through Gaussian/Laplacian pyramids");
+    }
+}
+
 } // namespace
 
 void hdr_tests() {
@@ -451,4 +793,11 @@ void hdr_tests() {
   motion_fallback(true);
   motion_fallback(true, true);
   exposure_robust_registration();
+}
+
+void matrix_tests() {
+  matrix_radiance_and_focus();
+  matrix_validity_and_motion();
+  matrix_cache_streaming();
+  matrix_geometric_composition();
 }

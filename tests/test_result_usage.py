@@ -20,7 +20,7 @@ class ResultUsage(unittest.TestCase):
         cls.flags = ['-std=c++26', '-fmodules', '-fcontracts',
                      '-fcontract-evaluation-semantic=quick_enforce']
         for module in ('core/error', 'image/image', 'color/color', 'image/pyramid', 'io/raw',
-                       'registration/registration', 'focus_stack/focus_stack'):
+                       'registration/registration', 'hdr/hdr', 'focus_stack/focus_stack'):
             result = subprocess.run(
                 [*cls.compiler, *cls.flags, '-x', 'c++', '-c',
                  str(ROOT / f'src/{module}.cppm'), '-o', f'{Path(module).name}.o'],
@@ -67,7 +67,8 @@ void consume() {
     def test_registration_helpers_are_not_exported(self):
         for name in ('p::align_focus_stack', 'p::detail::align_focus_stack',
                      'p::refine_focus_stack', 'p::detail::refine_focus_stack',
-                     'p::detail::align_bracket', 'p::detail::refine_bracket'):
+                     'p::detail::align_bracket', 'p::detail::refine_bracket',
+                     'p::detail::stack_hdr_planes'):
             with self.subTest(name=name):
                 result = self.compile_body(f'(void){name}({{}}, {{}});')
                 self.assertNotEqual(result.returncode, 0)

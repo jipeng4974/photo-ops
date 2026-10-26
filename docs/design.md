@@ -41,8 +41,9 @@ export 它，也不只为了测试而扩大公开边界。现有三个函数不�
 不暴露低层 registration／radiance stages。沿用一个 shared context，在 reference
 exposure 信号尺度合并；用 pre-WB sensor support 判断 clipping／signal floor，
 运动区域选同一 coherent source。输出 signed float32 Rec.2020 TIFF，无隐式 tone map。
-数值契约、预算、诊断与真实素材缺口见 [HDR](hdr.md)。二维 grouped capture 将扩展
-`stack_focus`，不增加 pipeline builder 或自动猜测拍摄矩阵。
+数值契约、预算、诊断与真实素材缺口见 [HDR](hdr.md)。v1.8 已通过显式 grouped capture 扩展
+`stack_focus`，共享全局 context 并传播 HDR 可靠性／motion，见
+[focus × exposure](focus-exposure.md)。不增加 pipeline builder 或自动猜测拍摄矩阵。
 
 ## 当前已落地的兼容格式契约（2026-10-25）
 

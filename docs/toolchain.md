@@ -531,3 +531,19 @@ release / EXR 关闭完整 C++ 回归通过；clean debug + EXR + ASan/UBSan 构
 HDR／RAW／focus suites、24 项 Python tests 通过（1 项可选实拍跳过）。包含独立
 radiance DNG、partial-channel clipping、clipped-motion lower bound、fractional AEB
 alignment、scalar provenance／atomic publication 和正常 focus 行为。
+
+## v1.8 focus × exposure 验证（2026-10-26）
+
+CLI 的严格 matrix manifest adapter 使用系统 JsonCpp 1.9.8；依赖只链接 CLI，
+不进入 photographic modules 或公开类型。xmake 与 toolchain.json 同步登记该边界。
+
+release / EXR 关闭完整 C++ 回归通过；clean debug + EXR + ASan/UBSan 完整
+C++ 回归通过（248 项检查，另含逐像素断言），两个配置均通过 27 项 Python
+检查（1 项可选 sunlight 实拍检查跳过）。包含 shared context、两轴几何组合、
+曝光与焦平面重排、HDR motion 传播、全部失效 fallback、cache/streaming 等价、
+严格 JSON 输入和诊断失败时保留完整照片。
+
+独立源码副本中仅禁用 invalid-HDR donor filling 后，原有 clipping/pyramid
+回归按预期失败；没有以故意改坏测试作为负向对照。指标、源码身份与限制见
+[focus × exposure](focus-exposure.md) 和矩阵 baseline JSON。合成数据不代替真实
+R8 AEB／2×3 摄影验收。

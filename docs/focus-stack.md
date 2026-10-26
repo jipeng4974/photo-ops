@@ -300,3 +300,10 @@ sunlight opt-in 1 项跳过）。精配准 synthetic 的采样点 full-res 坐�
 .918–.986；其中含强失焦与遮挡，不满足理想静态高信息区域的 .3–.7 px 目标，
 不能声称该 macro case 已实现全域 subpixel registration。后续需要按静态清晰区域
 分开评估；指标与真实风景/R8 几何质量仍需更多 fixture 验证。
+
+## v1.8 HDR-first matrix
+
+显式 `focus_exposure_matrix` / CLI `--matrix` 在一个 RAW context 下先做 HDR，再复用
+本模块的 coherent selection／defocus／fusion，保留 confidence／motion 等中间证据。
+新增预算与 private intermediates／numeric maps 见 [矩阵契约](focus-exposure.md)。
+flat RAW 继续要求同曝光，working TIFF 仅通过受检内部 HDR plane 路径进入。

@@ -32,6 +32,7 @@ Before making architectural or algorithmic changes, read:
 - `docs/raw-pipeline.md` — wide-gamut RAW and immutable sequence-context design.
 - `docs/focus-stack.md` — registration proxies and memory-budgeted full-resolution fusion.
 - `docs/hdr.md` — shutter-only radiometric merge, reliability, deghosting and HDR budgets.
+- `docs/focus-exposure.md` — matrix grouping, one shared context and reliability propagation.
 
 Use Omarchy/Arch system packages as the canonical dependency path; Homebrew is
 explicitly optional. Use stock clang-format; do not restore a custom C++ lexical

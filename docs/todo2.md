@@ -1,6 +1,6 @@
 # TODO2：HDR 与 focus × exposure 二维合成
 
-> **状态：分阶段实施中。** v1.6 已提供 shutter-only RAW context 与 sensor-support 基础；v1.7 已提供 standalone HDR operator；二维合成仍在实现。本页各项以末尾实施记录为准。
+> **状态：分阶段实施中。** v1.6 已提供 shutter-only RAW context 与 sensor-support 基础；v1.7 已提供 standalone HDR operator，v1.8 已接入显式二维 HDR-first 合成；实拍验收仍待素材。本页各项以末尾实施记录为准。
 
 本文考虑两个相关但不同的目标：
 
@@ -279,5 +279,9 @@ merge_hdr(...)
   coherent component deghost、预算内 tile/spool 和数字地图／JSON 诊断。合成 radiance、
   三种 camera 色彩的 partial clipping、reference clipped 的运动与 subpixel AEB
   registration 回归见 [HDR](hdr.md)。真实 R8 AEB acceptance 仍待素材。
-- 下一阶段：显式 matrix／HDR-first focus fusion，传播 HDR reliability／motion，
-  始终保留一个全局 RAW context。真实 R8 AEB／2×3 专项素材仍待采集。
+- **v1.8.0 / matrix**：grouped `stack_focus` 与 `--matrix` JSON 先逐 focus plane 调用
+  同一 HDR operation，再复用 focus／defocus／fusion。所有 originals 共享一个
+  context，HDR 可靠性与 motion 进入选择、pyramid support 和 fallback。见
+  [focus × exposure](focus-exposure.md)。
+- 工程路径已可运行；真实 R8 AEB／2×3 专项采集与风景验收仍未完成。joint 2D
+  optimization 继续保留为研究方向，等待真实 failure evidence。

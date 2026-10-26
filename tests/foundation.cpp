@@ -39,6 +39,7 @@ void focus_stack_tests();
 void raw_sequence_tests();
 void defocus_tests();
 void hdr_tests();
+void matrix_tests();
 
 namespace p = photo_ops;
 
@@ -415,6 +416,8 @@ int main(int argc, char **argv) {
       const std::string suite(argv[2]);
       if (suite == "hdr")
         hdr_tests();
+      else if (suite == "matrix")
+        matrix_tests();
       else if (suite == "raw")
         raw_sequence_tests();
       else if (suite == "focus")
@@ -427,7 +430,7 @@ int main(int argc, char **argv) {
       return 0;
     }
     if (argc != 1)
-      throw std::runtime_error("usage: photo-ops-tests [--suite hdr|raw|focus|defocus]");
+      throw std::runtime_error("usage: photo-ops-tests [--suite hdr|matrix|raw|focus|defocus]");
     image_tests();
     color_tests();
     pyramid_tests();
@@ -437,6 +440,7 @@ int main(int argc, char **argv) {
     focus_stack_tests();
     raw_sequence_tests();
     hdr_tests();
+    matrix_tests();
     defocus_tests();
     std::cout << checks << " checks passed\n";
     return 0;

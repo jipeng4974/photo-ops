@@ -1,0 +1,55 @@
+{
+  "version": 1,
+  "kind": "synthetic-focus-exposure-regression",
+  "capture_shape": [
+    2,
+    3
+  ],
+  "dimensions": [
+    256,
+    192
+  ],
+  "brightness_bands": [
+    0.003,
+    0.15,
+    1.6
+  ],
+  "relative_focus_mae": 5.93439e-06,
+  "single_focus_hdr_reference_mae": 0.0494418,
+  "note": "Focus selection against independent per-plane HDR outputs; radiance separately tested by HDR fixtures. Not real R8 capture.",
+  "invariants": [
+    "one context across six originals",
+    "different camera WB metadata across focus groups",
+    "exposure permutation and focus/reference mapping",
+    "invalid-plane exclusion and all-invalid fallback",
+    "HDR deghost veto even when merged colors agree",
+    "numeric maps and atomic diagnostics"
+  ],
+  "composed_geometry_maximum_corner_error_full_px": 0.0019399,
+  "composed_geometry_regression_limit_full_px": 0.4,
+  "cache_stress": {
+    "focus_planes": 20,
+    "exposures": 2,
+    "dimensions": [
+      64,
+      48
+    ],
+    "tile_size": 512,
+    "streaming_budget_mib": 512,
+    "cached_budget_mib": 1024,
+    "rgb_samples_identical": true
+  },
+  "donor_negative_control": {
+    "kind": "negative-control",
+    "change": "Disable only invalid HDR sample donor filling before Gaussian/Laplacian construction.",
+    "positive_core_sha256": "8ebae75bed8642153e991f38e2e0786127b177da92a5a6f82b56802984874589",
+    "negative_core_sha256": "86373131c979768ea1bb6951df67e40aa7eccc0d5d3f73a4d544cb9c71d40412",
+    "exit_codes": [
+      0,
+      0,
+      255
+    ],
+    "expected_failure": "invalid partial clipping cannot leak through Gaussian/Laplacian pyramids",
+    "isolation": "Independent source copy; explicit xmake -P for every command."
+  }
+}
