@@ -281,12 +281,17 @@ image<gray> color_error(image_view<const rgb_f32> a, image_view<const rgb_f32> b
   return smooth(error.view(), 2);
 }
 
-/// Signed guard: positive chooses this source, negative chooses reference. No depth order
-/// guessed.
-image<gray> defocus_pair(image_view<const rgb_f32> reference, image_view<const rgb_f32> source,
-                         image_view<const gray> transition, const color_encoding &encoding,
-                         std::span<const std::uint16_t> labels, std::size_t source_index,
-                         std::size_t reference_index) {
+struct defocus_pair_evidence {
+  image<gray> guard, static_spread;
+};
+
+/// Signed guard chooses source/reference at boundaries. Static spread can also explain
+/// interior HDR texture differences, without inventing a depth order or relaxing motion gates.
+defocus_pair_evidence
+defocus_pair(image_view<const rgb_f32> reference, image_view<const rgb_f32> source,
+             image_view<const gray> transition, const color_encoding &encoding,
+             std::span<const std::uint16_t> labels, std::size_t source_index,
+             std::size_t reference_index, bool explain_interior = false) {
   const auto size = reference.size();
   image<gray> ry(size), sy(size), dot(size), re(size), se(size);
   for (std::size_t y = 0; y < size.height; ++y)
@@ -361,6 +366,7 @@ image<gray> defocus_pair(image_view<const rgb_f32> reference, image_view<const r
   };
   // Convert fit errors to evidence and identify shared structural edges with different spread.
   image<gray> positive_seed(size), negative_seed(size);
+  image<gray> static_spread(explain_interior ? size : extent{});
   for (std::size_t y = 0; y < size.height; ++y)
     for (std::size_t x = 0; x < size.width; ++x) {
       const float baseline = std::max(original.view().at(x, y).value, 1e-10f);
@@ -373,9 +379,16 @@ image<gray> defocus_pair(image_view<const rgb_f32> reference, image_view<const r
       const double correlation = dot.view().at(x, y).value / std::max(r * s, 1e-12);
       const double value =
           std::max(std::abs(ry.view().at(x, y).value), std::abs(sy.view().at(x, y).value));
-      const bool common = transition.at(x, y).value > 0 && correlation > .75 &&
-                          broad_error.view().at(x, y).value < .01 + .1 * value &&
-                          baseline > 1e-8;
+      const bool structural = correlation > .75 &&
+                              broad_error.view().at(x, y).value < .01 + .1 * value &&
+                              baseline > 1e-8;
+      const bool common = transition.at(x, y).value > 0 && structural;
+      if (explain_interior && structural &&
+          ((positive > .9 && s > 1.5 * r && s > .002 + .08 * value &&
+            supported_owner(source_index, x, y)) ||
+           (negative > .9 && r > 1.5 * s && r > .002 + .08 * value &&
+            supported_owner(reference_index, x, y))))
+        static_spread.view().at(x, y).value = 1;
       if (common && s > 1.5 * r && s > .002 + .08 * value && positive > .5 &&
           supported_owner(source_index, x, y))
         positive_seed.view().at(x, y).value = source_radius.view().at(x, y).value;
@@ -383,6 +396,22 @@ image<gray> defocus_pair(image_view<const rgb_f32> reference, image_view<const r
           supported_owner(reference_index, x, y))
         negative_seed.view().at(x, y).value = reference_radius.view().at(x, y).value;
     }
+  if (explain_interior) {
+    // Texture extrema have vanishing gradients. Require nearby directional evidence,
+    // but retain a strong pointwise color/blur fit so real temporal changes cannot
+    // borrow a neighbor's explanation merely by lying within its filter support.
+    const auto directional_support = smooth(static_spread.view(), 2);
+    for (std::size_t y = 0; y < size.height; ++y)
+      for (std::size_t x = 0; x < size.width; ++x) {
+        const double value =
+            std::max(std::abs(ry.view().at(x, y).value), std::abs(sy.view().at(x, y).value));
+        static_spread.view().at(x, y).value =
+            directional_support.view().at(x, y).value > .1 &&
+            std::max(source_fit.view().at(x, y).value, reference_fit.view().at(x, y).value) >
+                .95 &&
+            broad_error.view().at(x, y).value < .01 + .1 * value;
+      }
+  }
   image<gray> guard(size), seed(size);
   for (int radius : {1, 2, 4, 8})
     for (int sign : {1, -1}) {
@@ -401,7 +430,7 @@ image<gray> defocus_pair(image_view<const rgb_f32> reference, image_view<const r
             guard.view().at(x, y).value = sign * alpha;
         }
     }
-  return guard;
+  return {std::move(guard), std::move(static_spread)};
 }
 
 image<gray> focus_score(image_view<const gray> src) {
@@ -846,7 +875,10 @@ result<coherent_maps> analyze(const std::vector<frame> &frames, extent full, std
                                    {0, 0, size.width, size.height}, profile);
     if (!motion)
       return std::unexpected(motion.error());
-    if (!has_transitions) {
+    const bool interior_motion =
+        matrix &&
+        std::ranges::any_of(motion->view().storage(), [](gray p) { return p.value > 0; });
+    if (!has_transitions && !interior_motion) {
       for (std::size_t y = 0; y < size.height; ++y)
         for (std::size_t x = 0; x < size.width; ++x)
           if (motion->view().at(x, y).value)
@@ -872,12 +904,12 @@ result<coherent_maps> analyze(const std::vector<frame> &frames, extent full, std
         return std::unexpected(q.error());
       aligned_source_quality = std::move(*q);
     }
-    auto guard = defocus_pair(ref_color->view(), source->view(), transition.view(), encoding,
-                              maps.label, i, reference);
+    auto evidence = defocus_pair(ref_color->view(), source->view(), transition.view(), encoding,
+                                 maps.label, i, reference, interior_motion);
     for (std::size_t y = 0; y < size.height; ++y)
       for (std::size_t x = 0; x < size.width; ++x) {
         const auto index = y * size.width + x;
-        const float signed_alpha = guard.view().at(x, y).value;
+        const float signed_alpha = evidence.guard.view().at(x, y).value;
         const float reliability =
             matrix ? std::min(aligned_reference_quality.view().at(x, y).value,
                               aligned_source_quality.view().at(x, y).value)
@@ -900,7 +932,8 @@ result<coherent_maps> analyze(const std::vector<frame> &frames, extent full, std
         }
         // Each pair must explain its own temporal difference; another moving source still
         // vetoes it.
-        if (motion->view().at(x, y).value && alpha < .5)
+        if (motion->view().at(x, y).value && alpha < .5 &&
+            (!interior_motion || !evidence.static_spread.view().at(x, y).value))
           maps.motion.view().at(x, y).value = 1;
       }
   }
@@ -1634,7 +1667,7 @@ stack_focus_impl(std::span<const std::string> inputs, const std::string &output,
   while (true) {
     q = ((size.width + step - 1) / step) * ((size.height + step - 1) / step);
     registration = 512 * q + 128 * mib;
-    fusion = (matrix ? 320 : 256) * q +
+    fusion = (matrix ? 328 : 256) * q +
              (matrix ? 544 : 512) * (tile + 2 * halo) * (tile + 2 * halo) + 128 * mib;
     if (std::max(registration, fusion) <= usable)
       break;
@@ -1650,7 +1683,7 @@ stack_focus_impl(std::span<const std::string> inputs, const std::string &output,
   }
   const auto tile_pixels = (tile + 2 * halo) * (tile + 2 * halo);
   const auto cached_fusion =
-      (matrix ? 320 : 256) * q +
+      (matrix ? 328 : 256) * q +
       std::max<std::size_t>(matrix ? 544 : 512, (matrix ? 416 : 384) + 16 * inputs.size()) *
           tile_pixels +
       128 * mib;

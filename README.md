@@ -64,7 +64,7 @@ Existing outputs are never overwritten. Run `xmake run photo-ops --help` for all
 
 ## API
 
-Version **1.8.0** provides three photographic entry points: `enhance_sunlight(...)`,
+Version **1.8.1** provides three photographic entry points: `enhance_sunlight(...)`,
 `stack_focus(...)`, and `merge_hdr(...)`.
 
 **Breaking change:** `align_focus_stack(...)` is no longer exported. Call

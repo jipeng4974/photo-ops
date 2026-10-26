@@ -8,6 +8,7 @@
 #include <functional>
 #include <iostream>
 #include <limits>
+#include <numbers>
 #include <stdexcept>
 #include <string>
 #include <tiffio.h>
@@ -478,6 +479,78 @@ p::hdr_options plane_options(const workspace &temp) {
   return options;
 }
 
+// Analytic Gaussian convolution of independent sinusoidal radiance: no resampling aliasing.
+void matrix_static_defocus_motion() {
+  struct scenario {
+    double level;
+    bool moving;
+  };
+
+  for (const auto [level, moving] :
+       std::array{scenario{.4, false}, scenario{1.5, false}, scenario{1.5, true}}) {
+    workspace temp;
+    const p::extent size{256, 192};
+    const auto captures = matrix_captures(
+        temp, size, [level, moving](std::size_t f, std::size_t, double x, double y) {
+          if (moving && f == 1 && x >= 90 && x < 126 && y >= 42 && y < 72)
+            return 3.;
+          const bool sharp = (y < 96) == (f == 0);
+          const double variance = sharp ? 0 : 16;
+          const auto wave = [variance](double frequency, double phase) {
+            return std::exp(-.5 * variance * frequency * frequency) * std::sin(phase);
+          };
+          return level *
+                 (1 + .25 * wave(2 * std::numbers::pi / 11, x * 2 * std::numbers::pi / 11) +
+                  .25 * wave(2 * std::numbers::pi / 15, y * 2 * std::numbers::pi / 15) +
+                  .12 * wave(std::sqrt(2.) * 2 * std::numbers::pi / 7,
+                             (x + y) * 2 * std::numbers::pi / 7));
+        });
+    p::focus_stack_options options;
+    options.already_aligned = true;
+    options.memory_budget_mib = 512;
+    options.tile_size = 64;
+    options.scratch_directory = temp.path.string();
+    options.diagnostics_directory = (temp.path / "diagnostics").string();
+    const auto path = (temp.path / "static-defocus.tif").string();
+    const auto report = take(p::stack_focus(captures, path, options));
+    const auto near_path = (temp.path / "near.tif").string(),
+               far_path = (temp.path / "far.tif").string();
+    take(p::merge_hdr(*report.raw_context, std::array<std::size_t, 3>{0, 1, 2}, near_path,
+                      plane_options(temp)));
+    take(p::merge_hdr(*report.raw_context, std::array<std::size_t, 3>{3, 4, 5}, far_path,
+                      plane_options(temp)));
+    auto result = take(p::read_working_tiff(path)),
+         near = take(p::read_working_tiff(near_path)),
+         far = take(p::read_working_tiff(far_path));
+    auto motion = take(p::read_image((temp.path / "diagnostics/motion.tif").string()));
+    double error = 0, false_motion = 0;
+    std::size_t count = 0;
+    for (std::size_t y = 20; y < size.height - 20; ++y)
+      for (std::size_t x = 20; x < size.width - 20; ++x) {
+        if (std::abs(long(y) - 96) < 24 || (moving && x >= 70 && x < 146 && y >= 22 && y < 92))
+          continue;
+        const auto ideal = (y < 96 ? near : far).pixels.view().at(x, y).g;
+        error += std::abs(result.pixels.view().at(x, y).g - ideal) / level;
+        false_motion += motion.pixels.view().at(x, y).r > .5;
+        ++count;
+      }
+    if (moving)
+      for (std::size_t y = 50; y < 64; ++y)
+        for (std::size_t x = 100; x < 116; ++x) {
+          check(motion.pixels.view().at(x, y).r > .5,
+                "interior defocus explanation must retain genuine cross-focus motion");
+          const auto a = result.pixels.view().at(x, y), b = far.pixels.view().at(x, y);
+          check(a.r == b.r && a.g == b.g && a.b == b.b,
+                "cross-focus temporal change must preserve exact coherent reference");
+        }
+    std::cout << "static HDR defocus: level=" << level << ", moving=" << moving
+              << ", focus_mae=" << error / count << ", false_motion=" << false_motion / count
+              << std::endl;
+    check(error / count < .02 && false_motion / count < .01,
+          "static Gaussian defocus across HDR planes must not trigger motion/reference blur");
+  }
+}
+
 void matrix_radiance_and_focus() {
   workspace temp;
   const p::extent size{256, 192};
@@ -796,6 +869,7 @@ void hdr_tests() {
 }
 
 void matrix_tests() {
+  matrix_static_defocus_motion();
   matrix_radiance_and_focus();
   matrix_validity_and_motion();
   matrix_cache_streaming();

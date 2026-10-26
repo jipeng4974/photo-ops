@@ -547,3 +547,14 @@ C++ 回归通过（248 项检查，另含逐像素断言），两个配置均通
 回归按预期失败；没有以故意改坏测试作为负向对照。指标、源码身份与限制见
 [focus × exposure](focus-exposure.md) 和矩阵 baseline JSON。合成数据不代替真实
 R8 AEB／2×3 摄影验收。
+
+## v1.8.1 静态 HDR defocus 回归
+
+先保存未修复程序的失败结果，再实现 matrix interior 的受限 blur explanation。
+完整 release C++ 回归通过，解析式 Gaussian 细纹理覆盖普通／HDR signal 与真实
+时间变化；原 defocus、三深度、HDR radiance、两轴几何与预算边界继续通过。
+数值与未修复 failure 见 [静态失焦 baseline](../tests/data/matrix-static-defocus-v181.json)。
+
+clean debug + EXR + ASan/UBSan 的 matrix／focus suites 与 CLI／Python 检查通过，
+包括真实变化区域的 exact reference fallback；未发现 sanitizer 错误。matrix planner
+增加 interior evidence workspace，flat focus 原有图像计算与回归数值不变。

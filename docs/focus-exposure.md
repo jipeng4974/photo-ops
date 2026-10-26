@@ -70,12 +70,12 @@ confidence 使用保守 min pooling，flags 使用 max pooling；confidence warp
 ## 预算与发布
 
 令 `P` 为全尺寸 pixels，`F` 为 focus planes，`Q/R` 为 coarse/fine pixels，
-`T=(tile+2*64)²`。HDR stages 顺序执行，使用 [HDR 预算](hdr.md)。matrix focus reserve：
+`T=(tile+2*64)²`。HDR stages 顺序执行，使用 [HDR 预算](hdr.md)。matrix focus reserve（v1.8.1，含 interior defocus evidence）：
 
 ```text
 working-plane decode = 32*P + largest_private_HDR_file + 128 MiB
-streaming fusion     = 320*Q + 544*T + 128 MiB
-cached fusion        = 320*Q + max(544,416+16*F)*T + 128 MiB
+streaming fusion     = 328*Q + 544*T + 128 MiB
+cached fusion        = 328*Q + max(544,416+16*F)*T + 128 MiB
 cache RGB + quality/weight = 16*F*T
 ```
 
@@ -131,3 +131,21 @@ atomic output 和诊断失败。受控双轴几何 fixture 的最大 corner erro
 有边界，shared context 不会消除它们。未据此增加 joint optimizer 或 unrestricted warp。
 工作值必须有限且满足 focus core 保守 magnitude limit（绝对 channel <=1e6）；超限
 失败，不静默裁剪。
+
+## v1.8.1：高亮细纹理的静态失焦
+
+旧的跨焦平面 low-frequency RGB gate 在明亮、高对比细纹理上仍会把 PSF 差异
+当作运动。解析式 Gaussian defocus fixture 的亮度 1.5 case 中，内部静态区域
+false-motion 为 30.44%，局部回退到虚焦 reference；亮度 0.4 对照没有此问题。
+
+保留原始 gate，再让已有受限 blur model 对 matrix interior 提供保守解释：
+附近须有共享梯度方向、明显 spread 差异、coherent sharp owner，宽尺度 RGB 仍须
+一致；每个被解释点还须由 source/reference 的正向 blur fit 消除超过 95% 的
+局部颜色误差。局部支持只处理纹理极值处梯度接近零的问题，不能让真正变化的
+像素仅借邻居证据过关。不从 tone-mapped 像素重算 focus evidence，不调整 motion
+阈值；HDR deghost hard veto 保留。没有 motion 或 boundary 的 pair 不额外做 fit。
+
+新增解析式 Gaussian 正弦场景，覆盖普通／HDR signal，以及同一场景内真实时间
+变化的 reference fallback；不只测容易被低通消除的乘积高频纹理。flat focus 的
+原有数值路径保持不变。该解释仍受 limited blur family 与共享结构证据限制，不
+宣称对任意失焦／运动都可辨识。

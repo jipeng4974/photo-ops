@@ -1,0 +1,20 @@
+{
+  "version": 1,
+  "kind": "synthetic-static-gaussian-defocus-regression",
+  "dimensions": [256, 192],
+  "capture_shape": [2, 3],
+  "blur_sigma_full_pixels": 4,
+  "construction": "Analytic Gaussian convolution of additive sinusoids; complementary sharp near/far halves, no resize interpolation.",
+  "before_v180": {
+    "signal_level": 1.5,
+    "relative_focus_mae": 0.0518759,
+    "false_motion_fraction_in_static_interior": 0.304409,
+    "expected_test_failure": "static Gaussian defocus across HDR planes must not trigger motion/reference blur"
+  },
+  "after_v181": [
+    {"signal_level": 0.4, "moving_patch": false, "relative_focus_mae": 0.00000329879, "false_motion_fraction_in_static_interior": 0},
+    {"signal_level": 1.5, "moving_patch": false, "relative_focus_mae": 0.00000329832, "false_motion_fraction_in_static_interior": 0},
+    {"signal_level": 1.5, "moving_patch": true, "relative_focus_mae": 0.00000318459, "false_motion_fraction_in_static_interior": 0, "coherent_reference_samples_exact": true}
+  ],
+  "limits": "Numerical RAW fixture, not a real R8 photograph. Interior comparison excludes boundaries and the deliberate moving patch. Existing HDR deghost veto and flat focus behavior remain separately covered."
+}
